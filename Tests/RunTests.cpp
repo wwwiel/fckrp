@@ -485,6 +485,77 @@ void testTamer()
     check (withRes > 4.0f, "Tame: cuts a ringing resonance (" + juce::String (withRes, 1) + " dB)");
     check (noiseOnly < 2.0f, "Tame: leaves broad noise mostly alone (" + juce::String (noiseOnly, 1) + " dB)");
 }
+
+// Sends a pure 440 Hz tone through one module at a time and measures how
+// much energy lands outside the tone and its harmonics. Pitch wobble,
+// chopping or modulation would show up as energy between the harmonics.
+float nonHarmonicDb (FckrpProcessor& p, double fs, int blockSize, float amp)
+{
+    const int fftOrder = 14, fftSize = 1 << fftOrder;
+    juce::dsp::FFT fft (fftOrder);
+    std::vector<float> data ((size_t) fftSize * 2, 0.0f);
+    juce::AudioBuffer<float> buf (2, blockSize);
+    juce::MidiBuffer midi;
+    const double f0 = 440.0;
+    int64_t t = 0;
+    const int settle = (int) fs * 2;
+    int collected = 0;
+    while (collected < fftSize)
+    {
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const float v = amp * (float) std::sin (juce::MathConstants<double>::twoPi * f0 * (double) (t + i) / fs);
+            buf.setSample (0, i, v);
+            buf.setSample (1, i, v);
+        }
+        p.processBlock (buf, midi);
+        for (int i = 0; i < blockSize && collected < fftSize; ++i)
+            if (t + i >= settle)
+            {
+                // 4-term Blackman-Harris window: very low leakage, so only
+                // real energy between the harmonics is counted.
+                const double ph = juce::MathConstants<double>::twoPi * (double) collected / (double) fftSize;
+                const float w = (float) (0.35875 - 0.48829 * std::cos (ph) + 0.14128 * std::cos (2.0 * ph) - 0.01168 * std::cos (3.0 * ph));
+                data[(size_t) collected++] = buf.getSample (0, i) * w;
+            }
+        t += blockSize;
+    }
+    fft.performFrequencyOnlyForwardTransform (data.data());
+    double harmonic = 0.0, other = 0.0;
+    for (int k = 2; k < fftSize / 2; ++k)
+    {
+        const double freq = (double) k * fs / fftSize;
+        const double e = (double) data[(size_t) k] * data[(size_t) k];
+        const double nearest = std::round (freq / f0) * f0;
+        if (nearest > 0.0 && std::abs (freq - nearest) < 6.0 * fs / fftSize)
+            harmonic += e;
+        else
+            other += e;
+    }
+    return (float) (10.0 * std::log10 ((other + 1e-20) / (harmonic + 1e-20)));
+}
+
+void testModulePurity()
+{
+    using namespace fckrp::ids;
+    const char* modules[][2] = { { gateOn, "Gate" }, { eqOn, "EQ" }, { tameOn, "Tame" }, { dsOn, "De-Ess" },
+                                 { compOn, "Opto" }, { satOn, "Tube" }, { dblOn, "Doubler" } };
+    for (double fs : { 44100.0, 48000.0 })
+        for (int bs : { 512, 1024, 333 })
+            for (auto& m : modules)
+            {
+                FckrpProcessor p;
+                p.setPlayConfigDetails (2, 2, fs, 256);
+                p.prepareToPlay (fs, 256);
+                p.setCurrentProgram (5);           // Big Hook settings
+                allModulesOff (p);
+                setParam (p, polish, 0.7f);
+                setParam (p, m[0], 1.0f);
+                const float db = nonHarmonicDb (p, fs, bs, 0.25f);
+                check (db < -60.0f, juce::String ("Purity: ") + m[1] + " @ " + juce::String ((int) fs) + " Hz, block "
+                                        + juce::String (bs) + ": energy between harmonics " + juce::String (db, 1) + " dB");
+            }
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -506,6 +577,7 @@ int main (int argc, char** argv)
     testWidth();
     testCompMix();
     testTamer();
+    testModulePurity();
     if (withEditor)
         testEditor();
 

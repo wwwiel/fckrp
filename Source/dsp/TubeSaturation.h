@@ -40,7 +40,7 @@ public:
 
         const int numCh = (int) up.getNumChannels();
         const int n = (int) up.getNumSamples();
-        constexpr float bias = 0.15f;
+        constexpr float bias = 0.05f;
         const float biasOut = std::tanh (bias);
 
         for (int i = 0; i < n; ++i)
@@ -49,7 +49,7 @@ public:
             if (! enabled || amt <= 0.0001f)
                 continue;
 
-            const float g = dbToGain (amt * 24.0f);
+            const float g = dbToGain (amt * 12.0f);
             const float comp = 1.0f / std::pow (g, 0.8f);
 
             for (int ch = 0; ch < numCh; ++ch)

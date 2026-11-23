@@ -280,7 +280,7 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     }
     compGainReductionDb.store (compGr);
 
-    saturation.setAmount (get (satDrive) + 0.25f * pol);
+    saturation.setAmount (get (satDrive) + 0.1f * pol);
     saturation.process (buffer, isOn (satOn));
 
     if (isOn (dblOn))
