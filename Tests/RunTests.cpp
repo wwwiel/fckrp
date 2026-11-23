@@ -556,6 +556,29 @@ void testModulePurity()
                                         + juce::String (bs) + ": energy between harmonics " + juce::String (db, 1) + " dB");
             }
 }
+// The delay must never read outside its buffer, for any sample rate and
+// delay time (375 ms at 48 kHz used to read one sample past the end).
+void testDelayIndexInRange()
+{
+    int bad = 0;
+    for (double fs : { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 })
+    {
+        const int size = (int) (fs * 2.1) + 4;
+        for (float ms : { 10.0f, 125.0f, 250.0f, 333.0f, 375.0f, 500.0f, 750.0f, 1000.0f, 2000.0f })
+        {
+            const float d = juce::jlimit (1.0f, (float) size - 3.0f, ms * 0.001f * (float) fs);
+            for (int w = 0; w < size; ++w)
+            {
+                int i0, i1;
+                float frac;
+                fckrp::VocalDelay::readIndex (w, d, size, i0, i1, frac);
+                if (i0 < 0 || i0 >= size || i1 < 0 || i1 >= size || ! (frac >= 0.0f && frac < 1.0f))
+                    ++bad;
+            }
+        }
+    }
+    check (bad == 0, "Delay read position always inside its buffer (" + juce::String (bad) + " bad)");
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -578,6 +601,7 @@ int main (int argc, char** argv)
     testCompMix();
     testTamer();
     testModulePurity();
+    testDelayIndexInRange();
     if (withEditor)
         testEditor();
 

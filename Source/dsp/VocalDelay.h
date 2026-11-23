@@ -46,11 +46,9 @@ public:
             const float fb = feedback.getNextValue();
             const float m = mix.getNextValue();
 
-            float readPos = (float) writePos - d;
-            if (readPos < 0.0f) readPos += (float) size;
-            const int i0 = (int) readPos;
-            const int i1 = (i0 + 1) % size;
-            const float frac = readPos - (float) i0;
+            int i0, i1;
+            float frac;
+            readIndex (writePos, d, size, i0, i1, frac);
 
             for (int ch = 0; ch < numCh; ++ch)
             {
@@ -69,6 +67,22 @@ public:
             }
             writePos = (writePos + 1) % size;
         }
+    }
+
+    // Where to read in a circular buffer of "size" samples, "delay" samples
+    // behind writePos. Done in double precision: in float, a position a hair
+    // below zero wrapped to exactly "size", so the delay read one sample past
+    // the end of its buffer (e.g. 375 ms at 48 kHz) and fed whatever memory
+    // was there into the feedback loop, which blew up into loud noise.
+    static void readIndex (int writePos, float delay, int size, int& i0, int& i1, float& frac)
+    {
+        double readPos = (double) writePos - (double) delay;
+        if (readPos < 0.0) readPos += (double) size;
+        i0 = (int) readPos;
+        frac = (float) (readPos - (double) i0);
+        if (i0 >= size) i0 -= size;
+        if (i0 < 0) i0 = 0;
+        i1 = (i0 + 1) % size;
     }
 
 private:
