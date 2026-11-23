@@ -32,14 +32,16 @@ Das Signal läuft in dieser Reihenfolge durch die Module. Jedes Modul lässt sic
 
 2. Den Ordner `fckrp.vst3` nach `C:\Program Files\Common Files\VST3\` kopieren.
 
-**Mac**
+**Mac (am einfachsten)**
 
-2. Im entpackten Ordner liegt `fckrp-vst3.zip` (und `fckrp-au.zip`). Diese per Doppelklick ebenfalls entpacken.
-3. Im Finder *Gehe zu → Gehe zum Ordner…* wählen, `/Library/Audio/Plug-Ins/VST3` eingeben und `fckrp.vst3` dort hineinziehen (Passwort bestätigen). Die AU-Version `fckrp.component` gehört nach `/Library/Audio/Plug-Ins/Components`.
-4. Das Plugin ist noch nicht bei Apple beglaubigt, deshalb blockiert macOS es. Einmal im Terminal ausführen:
-   ```
-   sudo xattr -dr com.apple.quarantine /Library/Audio/Plug-Ins/VST3/fckrp.vst3
-   ```
+2. Im entpackten Ordner `fckrp-Installer.pkg` mit **Rechtsklick → Öffnen** starten (ein normaler Doppelklick wird von macOS blockiert, weil das Paket noch nicht bei Apple beglaubigt ist) und durchklicken. Das installiert fckrp nach `/Library/Audio/Plug-Ins/VST3` und `/Library/Audio/Plug-Ins/Components`, also genau dorthin, wo FL Studio sucht.
+   Falls macOS trotzdem blockiert: *Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen*.
+
+**Mac (von Hand)**
+
+2. `fckrp-vst3.zip` entpacken und `fckrp.vst3` nach `/Library/Audio/Plug-Ins/VST3` legen (Finder: *Gehe zu → Gehe zum Ordner…*).
+3. Einmal im Terminal ausführen: `sudo xattr -dr com.apple.quarantine /Library/Audio/Plug-Ins/VST3/fckrp.vst3`
+4. Wer das Plugin stattdessen in den Benutzerordner `~/Library/Audio/Plug-Ins/VST3` legt, muss diesen Ordner in FL Studio unter *Manage plugins → Plugin search paths* hinzufügen. Standardmäßig sucht FL Studio dort nicht.
 
 **Dann in FL Studio**
 

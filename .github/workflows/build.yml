@@ -44,8 +44,8 @@ jobs:
             build: cmake --build build --config Release --target fckrp_VST3 --parallel
           - name: macOS
             os: macos-latest
-            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-            build: cmake --build build --config Release --target fckrp_VST3 fckrp_AU --parallel
+            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DFCKRP_BUILD_LOADCHECK=ON
+            build: cmake --build build --config Release --target fckrp_VST3 fckrp_AU fckrp_loadcheck --parallel
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -65,6 +65,21 @@ jobs:
         run: |
           codesign --force --deep --sign - dist/fckrp.vst3
           codesign --force --deep --sign - dist/fckrp.component
+      - name: Build installer (macOS)
+        # Installs into /Library/Audio/Plug-Ins, the folders FL Studio scans by default.
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p pkgroot/Library/Audio/Plug-Ins/VST3 pkgroot/Library/Audio/Plug-Ins/Components
+          ditto dist/fckrp.vst3 pkgroot/Library/Audio/Plug-Ins/VST3/fckrp.vst3
+          ditto dist/fckrp.component pkgroot/Library/Audio/Plug-Ins/Components/fckrp.component
+          pkgbuild --analyze --root pkgroot components.plist
+          n=$(/usr/libexec/PlistBuddy -c "Print" components.plist | grep -c "BundleIsRelocatable")
+          for i in $(seq 0 $((n - 1))); do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist
+          done
+          pkgbuild --root pkgroot --component-plist components.plist \
+            --identifier com.fckrp.installer --version 0.1.0 --install-location / \
+            dist/fckrp-Installer.pkg
       - name: Zip plugins keeping file permissions (macOS)
         # GitHub's artifact upload drops the executable bit inside bundles,
         # which stops hosts from loading the plugin. ditto keeps it.
@@ -74,6 +89,13 @@ jobs:
           ditto -c -k --keepParent fckrp.vst3 fckrp-vst3.zip
           ditto -c -k --keepParent fckrp.component fckrp-au.zip
           rm -rf fckrp.vst3 fckrp.component
+      - name: Load check from the downloaded zip (macOS)
+        # Unpack the zip the way a user would and open the plugin like a DAW.
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p /tmp/check
+          ditto -x -k dist/fckrp-vst3.zip /tmp/check
+          ./build/fckrp_loadcheck_artefacts/Release/fckrp_loadcheck /tmp/check/fckrp.vst3
       - name: Upload plugin
         uses: actions/upload-artifact@v4
         with:

@@ -82,3 +82,20 @@ if(FCKRP_BUILD_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Load check: opens the built plugin file like a DAW would.
+#   cmake -B build -DFCKRP_BUILD_LOADCHECK=ON && cmake --build build --target fckrp_loadcheck
+option(FCKRP_BUILD_LOADCHECK "Build the plugin load-check program" OFF)
+if(FCKRP_BUILD_LOADCHECK)
+    juce_add_console_app(fckrp_loadcheck PRODUCT_NAME "fckrp_loadcheck")
+    target_sources(fckrp_loadcheck PRIVATE Tests/LoadCheck.cpp)
+    target_compile_definitions(fckrp_loadcheck PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        JUCE_PLUGINHOST_AU=$<IF:$<BOOL:${APPLE}>,1,0>
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(fckrp_loadcheck PRIVATE
+        juce::juce_audio_processors
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags)
+endif()
