@@ -15,7 +15,7 @@ class FckrpProcessor : public juce::AudioProcessor
 {
 public:
     FckrpProcessor();
-    ~FckrpProcessor() override = default;
+    ~FckrpProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -50,11 +50,26 @@ public:
     std::atomic<float> inputLevelDb { -100.0f };
     std::atomic<float> outputLevelDb { -100.0f };
 
+    // Diagnostics, written to a log file once a second from the message
+    // thread (never from the audio thread). They show what the host really
+    // sends and how loud the signal is after every module.
+    enum Stage { stIn, stGate, stEq, stTame, stDeEss, stOpto, stTube, stDoubler, stDelay, stHall, stWidth, stOut, numStages };
+    std::array<std::atomic<float>, numStages> stagePeak;
+    std::atomic<int> diagMinBlock { 1 << 30 }, diagMaxBlock { 0 }, diagBufChannels { 0 };
+    std::atomic<int> diagNumIn { 0 }, diagNumOut { 0 }, diagPrepares { 0 }, diagPrepBlock { 0 };
+    std::atomic<int> diagUnprepared { 0 }, diagNonFiniteIn { 0 }, diagSafetyTrips { 0 }, diagRunawayTrips { 0 };
+    std::atomic<double> diagRate { 0.0 };
+
 private:
     static constexpr int maxChunk = 512;
 
     void processChunk (juce::AudioBuffer<float>& buffer);
     void resetDsp();
+    void markStage (Stage s, const juce::AudioBuffer<float>& b);
+
+    struct DiagLogger;
+    std::unique_ptr<DiagLogger> diagLogger;
+    juce::int64 runawaySamples = 0;
 
     float get (const char* id) const { return params.at (id)->load(); }
     bool isOn (const char* id) const { return get (id) > 0.5f; }

@@ -58,8 +58,8 @@ private:
     std::unique_ptr<Knob> polishKnob, spaceKnob, outputKnob, widthKnob;
     std::vector<std::unique_ptr<Section>> sections;
 
-    float compGr = 0.0f, deEssGr = 0.0f, tameCut = 0.0f, outLevel = -100.0f;
-    juce::Rectangle<int> compMeterArea, tameMeterArea, outMeterArea;
+    float compGr = 0.0f, deEssGr = 0.0f, tameCut = 0.0f, outLevel = -100.0f, inLevel = -100.0f;
+    juce::Rectangle<int> compMeterArea, tameMeterArea, outMeterArea, inMeterArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FckrpEditor)
 };

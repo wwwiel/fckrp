@@ -107,3 +107,11 @@ if(FCKRP_BUILD_LOADCHECK)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags)
 endif()
+
+if(FCKRP_BUILD_TESTS)
+    juce_add_console_app(fckrp_fuzz PRODUCT_NAME "fckrp_fuzz")
+    target_sources(fckrp_fuzz PRIVATE Tests/Fuzz.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Presets.cpp)
+    target_include_directories(fckrp_fuzz PRIVATE Source)
+    target_compile_definitions(fckrp_fuzz PRIVATE JucePlugin_Name="fckrp" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(fckrp_fuzz PRIVATE juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
+endif()

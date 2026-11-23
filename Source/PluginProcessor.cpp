@@ -101,6 +101,101 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 }
 } // namespace fckrp
 
+
+namespace
+{
+void atomicMax (std::atomic<float>& a, float v)
+{
+    float cur = a.load (std::memory_order_relaxed);
+    while (v > cur && ! a.compare_exchange_weak (cur, v, std::memory_order_relaxed)) {}
+}
+
+void atomicMin (std::atomic<int>& a, int v)
+{
+    int cur = a.load (std::memory_order_relaxed);
+    while (v < cur && ! a.compare_exchange_weak (cur, v, std::memory_order_relaxed)) {}
+}
+
+void atomicMaxInt (std::atomic<int>& a, int v)
+{
+    int cur = a.load (std::memory_order_relaxed);
+    while (v > cur && ! a.compare_exchange_weak (cur, v, std::memory_order_relaxed)) {}
+}
+
+juce::File diagLogFile()
+{
+   #if JUCE_MAC
+    return juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Library/Logs/fckrp-diag.log");
+   #else
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("fckrp/fckrp-diag.log");
+   #endif
+}
+} // namespace
+
+// Writes what the host does and the level after every module to a small
+// text file, once a second, but only while audio is flowing.
+struct FckrpProcessor::DiagLogger : private juce::Timer
+{
+    explicit DiagLogger (FckrpProcessor& p) : proc (p)
+    {
+        file = diagLogFile();
+        file.getParentDirectory().createDirectory();
+        if (file.getSize() > 2 * 1024 * 1024)
+            file.deleteFile();
+        write ("\n=== fckrp build " __DATE__ " " __TIME__ " loaded "
+               + juce::Time::getCurrentTime().toString (true, true, true, true)
+               + " | host: " + juce::PluginHostType().getHostDescription()
+               + " | format: " + juce::String (juce::AudioProcessor::getWrapperTypeDescription (proc.wrapperType)));
+        startTimer (1000);
+    }
+
+    ~DiagLogger() override { stopTimer(); }
+
+    void timerCallback() override
+    {
+        static const char* names[] = { "in", "gate", "eq", "tame", "deess", "opto", "tube", "dbl", "delay", "hall", "width", "out" };
+        float peaks[numStages];
+        for (int s = 0; s < numStages; ++s)
+            peaks[s] = proc.stagePeak[(size_t) s].exchange (0.0f);
+
+        const int trips = proc.diagSafetyTrips.load() + proc.diagRunawayTrips.load();
+        const bool active = peaks[stIn] > 1.0e-5f || peaks[stOut] > 1.0e-5f;
+        if (! active && trips == lastTrips && proc.diagPrepares.load() == lastPrepares)
+            return;
+        lastTrips = trips;
+        lastPrepares = proc.diagPrepares.load();
+        if (++lines > 3600)
+            return; // about an hour of audio is plenty
+
+        juce::String line = juce::Time::getCurrentTime().toString (false, true, true, true)
+            + " sr=" + juce::String (proc.diagRate.load(), 0)
+            + " prep=" + juce::String (proc.diagPrepares.load()) + "/" + juce::String (proc.diagPrepBlock.load())
+            + " blk=" + juce::String (proc.diagMinBlock.exchange (1 << 30)) + ".." + juce::String (proc.diagMaxBlock.exchange (0))
+            + " ch=" + juce::String (proc.diagNumIn.load()) + ">" + juce::String (proc.diagNumOut.load())
+            + " buf=" + juce::String (proc.diagBufChannels.load())
+            + " unprep=" + juce::String (proc.diagUnprepared.load())
+            + " nanIn=" + juce::String (proc.diagNonFiniteIn.load())
+            + " trips=" + juce::String (proc.diagSafetyTrips.load()) + "/" + juce::String (proc.diagRunawayTrips.load())
+            + " |";
+        for (int s = 0; s < numStages; ++s)
+            line << " " << names[s] << "=" << juce::String (fckrp::gainToDb (peaks[s]), 1);
+        write (line);
+    }
+
+    void write (const juce::String& text) { file.appendText (text + "\n", false, false, "\n"); }
+
+    FckrpProcessor& proc;
+    juce::File file;
+    int lastTrips = 0, lastPrepares = -1, lines = 0;
+};
+
+FckrpProcessor::~FckrpProcessor() = default;
+
+void FckrpProcessor::markStage (Stage s, const juce::AudioBuffer<float>& b)
+{
+    atomicMax (stagePeak[(size_t) s], b.getMagnitude (0, b.getNumSamples()));
+}
+
 FckrpProcessor::FckrpProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
@@ -113,6 +208,13 @@ FckrpProcessor::FckrpProcessor()
         jassert (value != nullptr);
         params[id] = value;
     }
+
+    for (auto& p : stagePeak)
+        p.store (0.0f);
+
+    // Only log inside a real plugin host, not in the offline tests.
+    if (wrapperType != wrapperType_Undefined)
+        diagLogger = std::make_unique<DiagLogger> (*this);
 }
 
 bool FckrpProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -125,6 +227,11 @@ bool FckrpProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void FckrpProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    diagPrepares.fetch_add (1);
+    diagPrepBlock.store (samplesPerBlock);
+    diagRate.store (sampleRate);
+    runawaySamples = 0;
+
     const int numCh = std::max (2, getTotalNumOutputChannels());
 
     // Hosts may send bigger blocks than announced here (FL Studio does), so
@@ -160,9 +267,16 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     const int numCh = buffer.getNumChannels();
     const int total = buffer.getNumSamples();
 
+    atomicMin (diagMinBlock, total);
+    atomicMaxInt (diagMaxBlock, total);
+    diagBufChannels.store (numCh);
+    diagNumIn.store (getTotalNumInputChannels());
+    diagNumOut.store (getTotalNumOutputChannels());
+
     // Some hosts call this before prepareToPlay(): output silence then.
     if (! isPrepared)
     {
+        diagUnprepared.fetch_add (1);
         buffer.clear();
         return;
     }
@@ -173,10 +287,15 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
         auto* d = buffer.getWritePointer (ch);
         for (int i = 0; i < total; ++i)
             if (! std::isfinite (d[i]))
+            {
                 d[i] = 0.0f;
+                diagNonFiniteIn.fetch_add (1);
+            }
     }
 
-    inputLevelDb.store (fckrp::gainToDb (buffer.getMagnitude (0, total)));
+    const float inPeak = buffer.getMagnitude (0, total);
+    inputLevelDb.store (fckrp::gainToDb (inPeak));
+    atomicMax (stagePeak[stIn], inPeak);
 
     for (int start = 0; start < total; start += maxChunk)
     {
@@ -201,8 +320,17 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             d[i] = juce::jlimit (-2.0f, 2.0f, d[i]);
         }
     }
-    if (bad)
+    // Second safety net: output that sits at full scale and far above the
+    // input for 0.3 s is not music but a runaway, so mute and start fresh.
+    const float outPeak = buffer.getMagnitude (0, total);
+    const bool runaway = ! bad && ((outPeak >= 1.99f && outPeak > 2.0f * inPeak)
+                                   || (outPeak >= 0.98f && outPeak > 8.0f * inPeak));
+    runawaySamples = runaway ? runawaySamples + total : 0;
+    const bool runawayTrip = runawaySamples > (juce::int64) (0.3 * getSampleRate());
+
+    if (bad || runawayTrip)
     {
+        (bad ? diagSafetyTrips : diagRunawayTrips).fetch_add (1);
         buffer.clear();
         resetDsp();
     }
@@ -212,6 +340,7 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
 
 void FckrpProcessor::resetDsp()
 {
+    diagPrepares.fetch_sub (1); // not a host call
     prepareToPlay (getSampleRate() > 0.0 ? getSampleRate() : 44100.0, maxChunk);
 }
 
@@ -228,6 +357,7 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         gate.setThreshold (get (gateThresh));
         gate.process (buffer);
     }
+    markStage (stGate, buffer);
 
     if (isOn (eqOn))
     {
@@ -236,6 +366,7 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
                           get (eqAir) + 3.0f * pol);
         eq.process (buffer);
     }
+    markStage (stEq, buffer);
 
     float tameCut = 0.0f;
     if (isOn (tameOn))
@@ -244,6 +375,7 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         tameCut = tamer.process (buffer);
     }
     tameCutDb.store (tameCut);
+    markStage (stTame, buffer);
 
     float dsGr = 0.0f;
     if (isOn (dsOn))
@@ -252,6 +384,7 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         dsGr = deEsser.process (buffer);
     }
     deEssGainReductionDb.store (dsGr);
+    markStage (stDeEss, buffer);
 
     float compGr = 0.0f;
     if (isOn (compOn))
@@ -279,33 +412,40 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
         }
     }
     compGainReductionDb.store (compGr);
+    markStage (stOpto, buffer);
 
     saturation.setAmount (get (satDrive) + 0.1f * pol);
     saturation.process (buffer, isOn (satOn));
+    markStage (stTube, buffer);
 
     if (isOn (dblOn))
     {
         doubler.setParameters (get (dblAmount), get (dblDetune));
         doubler.process (buffer);
     }
+    markStage (stDoubler, buffer);
 
     if (isOn (dlyOn))
     {
         delay.setParameters (get (dlyTime), get (dlyFeedback), get (dlyMix) + 0.25f * spc);
         delay.process (buffer);
     }
+    markStage (stDelay, buffer);
 
     if (isOn (revOn))
     {
         reverb.setParameters (get (revSize) + 0.2f * spc, get (revDamp), get (revMix) + 0.35f * spc);
         reverb.process (buffer);
     }
+    markStage (stHall, buffer);
 
     stereoWidth.setWidth (get (width) + 0.25f * spc);
     stereoWidth.process (buffer);
+    markStage (stWidth, buffer);
 
     outputGain.setTargetValue (fckrp::dbToGain (get (output)));
     outputGain.applyGain (buffer, buffer.getNumSamples());
+    markStage (stOut, buffer);
 }
 
 juce::AudioProcessorEditor* FckrpProcessor::createEditor()

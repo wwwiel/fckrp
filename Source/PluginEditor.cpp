@@ -175,16 +175,23 @@ void FckrpEditor::paint (juce::Graphics& g)
     drawGr (compMeterArea, compGr, 20.0f);
     drawGr (tameMeterArea, tameCut, 12.0f);
 
-    // Output level meter
-    if (! outMeterArea.isEmpty())
+    // Input and output level meters
+    auto drawLevel = [&g] (juce::Rectangle<int> area, float level, const char* label)
     {
+        if (area.isEmpty())
+            return;
         g.setColour (LNF::panel);
-        g.fillRoundedRectangle (outMeterArea.toFloat(), 3.0f);
-        const float frac = juce::jlimit (0.0f, 1.0f, (outLevel + 60.0f) / 60.0f);
-        auto bar = outMeterArea.toFloat().reduced (2.0f);
-        g.setColour (outLevel > -0.5f ? juce::Colours::red : LNF::text.withAlpha (0.8f));
+        g.fillRoundedRectangle (area.toFloat(), 3.0f);
+        const float frac = juce::jlimit (0.0f, 1.0f, (level + 60.0f) / 60.0f);
+        auto bar = area.toFloat().reduced (2.0f);
+        g.setColour (level > -0.5f ? juce::Colours::red : LNF::text.withAlpha (0.8f));
         g.fillRoundedRectangle (bar.removeFromBottom (bar.getHeight() * frac), 2.0f);
-    }
+        g.setColour (LNF::dim);
+        g.setFont (juce::FontOptions (9.0f));
+        g.drawText (label, area.getX() - 8, area.getBottom() + 3, area.getWidth() + 16, 12, juce::Justification::centred);
+    };
+    drawLevel (inMeterArea, inLevel, "IN");
+    drawLevel (outMeterArea, outLevel, "OUT");
 }
 
 void FckrpEditor::resized()
@@ -210,8 +217,10 @@ void FckrpEditor::resized()
     widthKnob->label.setBounds (widthArea.removeFromTop (20));
     widthKnob->slider.setBounds (widthArea.reduced (10, 10));
 
-    auto outArea = macroRow.removeFromRight (120);
-    outMeterArea = outArea.removeFromRight (14).reduced (0, 10);
+    auto outArea = macroRow.removeFromRight (140);
+    outMeterArea = outArea.removeFromRight (12).withTrimmedTop (10).withTrimmedBottom (18);
+    outArea.removeFromRight (4);
+    inMeterArea = outArea.removeFromRight (12).withTrimmedTop (10).withTrimmedBottom (18);
     outputKnob->label.setBounds (outArea.removeFromTop (20));
     outputKnob->slider.setBounds (outArea.reduced (10, 10));
 
@@ -252,6 +261,8 @@ void FckrpEditor::timerCallback()
     compGr = gr > compGr ? gr : compGr * 0.85f + gr * 0.15f;
     const float lvl = processor.outputLevelDb.load();
     outLevel = lvl > outLevel ? lvl : outLevel - 1.5f;
+    const float il = processor.inputLevelDb.load();
+    inLevel = il > inLevel ? il : inLevel - 1.5f;
 
     if (presetBox.getSelectedId() != processor.getCurrentProgram() + 1)
         presetBox.setSelectedId (processor.getCurrentProgram() + 1, juce::dontSendNotification);
@@ -261,5 +272,6 @@ void FckrpEditor::timerCallback()
 
     repaint (compMeterArea.expanded (2, 20));
     repaint (tameMeterArea.expanded (2, 20));
-    repaint (outMeterArea.expanded (2));
+    repaint (outMeterArea.expanded (10, 16));
+    repaint (inMeterArea.expanded (10, 16));
 }
