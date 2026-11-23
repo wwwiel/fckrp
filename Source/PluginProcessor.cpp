@@ -64,7 +64,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addFloat (eqPresence, "Presence", { -6.0f, 12.0f, 0.1f }, 0.0f, "dB");
     addFloat (eqAir, "Air", { -6.0f, 12.0f, 0.1f }, 0.0f, "dB");
 
-    addBool (tameOn, "Tame On", true);
+    addBool (tameOn, "Tame On", false);
     addFloat (tameDepth, "Tame Depth", { 0.0f, 1.0f }, 0.3f, "");
     addFloat (tameSens, "Tame Sensitivity", { 0.0f, 1.0f }, 0.5f, "");
 

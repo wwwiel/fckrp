@@ -12,7 +12,7 @@ Das Signal läuft in dieser Reihenfolge durch die Module. Jedes Modul lässt sic
 |---|---|
 | **Gate** | Senkt Rauschen und Atmer zwischen den Phrasen sanft ab, statt hart abzuschneiden. |
 | **EQ** | Low Cut gegen Rumpeln, „Mud“ bei 300 Hz, „Presence“ bei 3,5 kHz für Verständlichkeit, „Air“ ab 10 kHz für Glanz. |
-| **Tame** | Dynamischer Resonanz-Zähmer: acht schmale Bänder zwischen 1,2 und 9 kHz. Ein Band, das deutlich lauter ist als seine Nachbarn (eine schrille, „klingelnde“ Frequenz), wird nur in diesem Moment abgesenkt. Regler: Depth (bis 12 dB), Sensitivity. |
+| **Tame** | Dynamischer Resonanz-Zähmer: acht schmale Bänder zwischen 1,2 und 9 kHz. Ein Band, das deutlich lauter ist als seine Nachbarn (eine schrille, „klingelnde“ Frequenz), wird nur in diesem Moment abgesenkt. Regler: Depth (bis 12 dB), Sensitivity. Standardmäßig aus. |
 | **De-Ess** | Macht scharfe S- und Zischlaute leiser, nur im Höhenbereich. |
 | **Opto** | Eigener optischer Röhrenkompressor: sehr weiche Kennlinie, zweistufiges Release (schneller Anteil plus langsamer Ausklang) und „Gedächtnis“, das nach langer Kompression langsamer loslässt. Regler: Threshold, Ratio, Attack, Release, Gain und **Mix** für Parallel-Kompression (100 % = voll komprimiert, weniger = Original wird beigemischt). |
 | **Tube** | Röhrensättigung mit 2-fach-Oversampling. Regler: Drive und **Character** (0 % = weich und sauber, 100 % = heiß und kräftig, mit mehr warmen Obertönen; Standard 100 %). |
