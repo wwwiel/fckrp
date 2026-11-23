@@ -79,17 +79,20 @@ FckrpEditor::FckrpEditor (FckrpProcessor& p)
     polishKnob = makeKnob (polish, "POLISH", true);
     spaceKnob = makeKnob (space, "SPACE", true);
     outputKnob = makeKnob (output, "OUTPUT");
+    widthKnob = makeKnob (width, "WIDTH");
 
     addSection ("GATE", gateOn, { { gateThresh, "Threshold" } });
     addSection ("EQ", eqOn, { { eqLowCut, "Low Cut" }, { eqMud, "Mud" }, { eqPresence, "Presence" }, { eqAir, "Air" } });
+    addSection ("TAME", tameOn, { { tameDepth, "Depth" }, { tameSens, "Sensitivity" } });
     addSection ("DE-ESS", dsOn, { { dsFreq, "Freq" }, { dsThresh, "Threshold" } });
     addSection ("OPTO", compOn, { { compThresh, "Threshold" }, { compRatio, "Ratio" }, { compAttack, "Attack" },
-                                  { compRelease, "Release" }, { compMakeup, "Gain" } });
+                                  { compRelease, "Release" }, { compMakeup, "Gain" }, { compMix, "Mix" } });
     addSection ("TUBE", satOn, { { satDrive, "Drive" } });
+    addSection ("DOUBLER", dblOn, { { dblAmount, "Amount" }, { dblDetune, "Detune" } });
     addSection ("DELAY", dlyOn, { { dlyTime, "Time" }, { dlyFeedback, "Feedback" }, { dlyMix, "Mix" } });
     addSection ("HALL", revOn, { { revSize, "Size" }, { revDamp, "Damping" }, { revMix, "Mix" } });
 
-    setSize (1000, 700);
+    setSize (1100, 780);
     startTimerHz (30);
 }
 
@@ -154,20 +157,23 @@ void FckrpEditor::paint (juce::Graphics& g)
                     juce::Justification::centredLeft);
     }
 
-    // Opto gain-reduction meter
-    if (! compMeterArea.isEmpty())
+    // Gain-reduction meters (Opto and Tame)
+    auto drawGr = [&g] (juce::Rectangle<int> area, float db, float fullScale)
     {
+        if (area.isEmpty())
+            return;
         g.setColour (LNF::background);
-        g.fillRoundedRectangle (compMeterArea.toFloat(), 3.0f);
-        const float frac = juce::jlimit (0.0f, 1.0f, compGr / 20.0f);
-        auto bar = compMeterArea.toFloat().reduced (2.0f);
+        g.fillRoundedRectangle (area.toFloat(), 3.0f);
+        const float frac = juce::jlimit (0.0f, 1.0f, db / fullScale);
+        auto bar = area.toFloat().reduced (2.0f);
         g.setColour (LNF::accent);
         g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * frac), 2.0f);
         g.setColour (LNF::dim);
         g.setFont (juce::FontOptions (10.0f));
-        g.drawText ("GR " + juce::String (compGr, 1) + " dB", compMeterArea.translated (0, 14),
-                    juce::Justification::centred);
-    }
+        g.drawText ("-" + juce::String (db, 1) + " dB", area.translated (0, 14), juce::Justification::centred);
+    };
+    drawGr (compMeterArea, compGr, 20.0f);
+    drawGr (tameMeterArea, tameCut, 12.0f);
 
     // Output level meter
     if (! outMeterArea.isEmpty())
@@ -200,6 +206,10 @@ void FckrpEditor::resized()
     placeBig (*polishKnob, centreBlock.removeFromLeft (bigKnob + 20));
     placeBig (*spaceKnob, centreBlock.removeFromRight (bigKnob + 20));
 
+    auto widthArea = macroRow.removeFromLeft (120);
+    widthKnob->label.setBounds (widthArea.removeFromTop (20));
+    widthKnob->slider.setBounds (widthArea.reduced (10, 10));
+
     auto outArea = macroRow.removeFromRight (120);
     outMeterArea = outArea.removeFromRight (14).reduced (0, 10);
     outputKnob->label.setBounds (outArea.removeFromTop (20));
@@ -222,9 +232,9 @@ void FckrpEditor::resized()
         auto inner = r.reduced (6).withTrimmedTop (28);
 
         if (s.title == "OPTO")
-        {
             compMeterArea = inner.removeFromBottom (34).withTrimmedBottom (20).reduced (4, 0);
-        }
+        if (s.title == "TAME")
+            tameMeterArea = inner.removeFromBottom (34).withTrimmedBottom (20).reduced (4, 0);
 
         for (auto& k : s.knobs)
         {
@@ -246,6 +256,10 @@ void FckrpEditor::timerCallback()
     if (presetBox.getSelectedId() != processor.getCurrentProgram() + 1)
         presetBox.setSelectedId (processor.getCurrentProgram() + 1, juce::dontSendNotification);
 
+    const float tc = processor.tameCutDb.load();
+    tameCut = tc > tameCut ? tc : tameCut * 0.85f + tc * 0.15f;
+
     repaint (compMeterArea.expanded (2, 20));
+    repaint (tameMeterArea.expanded (2, 20));
     repaint (outMeterArea.expanded (2));
 }

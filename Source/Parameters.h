@@ -43,10 +43,20 @@ inline constexpr const char* revSize     = "rev_size";
 inline constexpr const char* revDamp     = "rev_damp";
 inline constexpr const char* revMix      = "rev_mix";
 
+inline constexpr const char* compMix     = "comp_mix";
+inline constexpr const char* tameOn      = "tame_on";
+inline constexpr const char* tameDepth   = "tame_depth";
+inline constexpr const char* tameSens    = "tame_sens";
+inline constexpr const char* dblOn       = "dbl_on";
+inline constexpr const char* dblAmount   = "dbl_amount";
+inline constexpr const char* dblDetune   = "dbl_detune";
+inline constexpr const char* width       = "width";
+
 inline constexpr const char* all[] = {
     polish, space, output, gateOn, gateThresh, eqOn, eqLowCut, eqMud, eqPresence, eqAir,
     dsOn, dsFreq, dsThresh, compOn, compThresh, compRatio, compAttack, compRelease, compMakeup,
-    satOn, satDrive, dlyOn, dlyTime, dlyFeedback, dlyMix, revOn, revSize, revDamp, revMix
+    satOn, satDrive, dlyOn, dlyTime, dlyFeedback, dlyMix, revOn, revSize, revDamp, revMix,
+    compMix, tameOn, tameDepth, tameSens, dblOn, dblAmount, dblDetune, width
 };
 } // namespace fckrp::ids
 

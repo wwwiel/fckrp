@@ -2,6 +2,8 @@
 
 #include "Parameters.h"
 #include "dsp/DeEsser.h"
+#include "dsp/Doubler.h"
+#include "dsp/ResonanceTamer.h"
 #include "dsp/Gate.h"
 #include "dsp/OptoCompressor.h"
 #include "dsp/TubeSaturation.h"
@@ -44,6 +46,7 @@ public:
     // Meter values read by the editor.
     std::atomic<float> compGainReductionDb { 0.0f };
     std::atomic<float> deEssGainReductionDb { 0.0f };
+    std::atomic<float> tameCutDb { 0.0f };
     std::atomic<float> inputLevelDb { -100.0f };
     std::atomic<float> outputLevelDb { -100.0f };
 
@@ -62,7 +65,12 @@ private:
 
     fckrp::Gate gate;
     fckrp::VocalEq eq;
+    fckrp::ResonanceTamer tamer;
     fckrp::DeEsser deEsser;
+    fckrp::Doubler doubler;
+    fckrp::StereoWidth stereoWidth;
+    juce::AudioBuffer<float> compDry;
+    juce::SmoothedValue<float> compMixSmooth { 1.0f };
     fckrp::OptoCompressor compressor;
     fckrp::TubeSaturation saturation;
     fckrp::VocalDelay delay;
