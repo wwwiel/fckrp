@@ -73,10 +73,13 @@ jobs:
           ditto dist/fckrp.vst3 pkgroot/Library/Audio/Plug-Ins/VST3/fckrp.vst3
           ditto dist/fckrp.component pkgroot/Library/Audio/Plug-Ins/Components/fckrp.component
           pkgbuild --analyze --root pkgroot components.plist
-          n=$(/usr/libexec/PlistBuddy -c "Print" components.plist | grep -c "BundleIsRelocatable")
-          for i in $(seq 0 $((n - 1))); do
-            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist
+          i=0
+          while /usr/libexec/PlistBuddy -c "Print :$i" components.plist > /dev/null 2>&1; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist \
+              || /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" components.plist
+            i=$((i + 1))
           done
+          cat components.plist
           pkgbuild --root pkgroot --component-plist components.plist \
             --identifier com.fckrp.installer --version 0.1.0 --install-location / \
             dist/fckrp-Installer.pkg
