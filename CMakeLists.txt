@@ -91,7 +91,7 @@ if(FCKRP_BUILD_LOADCHECK)
     target_sources(fckrp_loadcheck PRIVATE Tests/LoadCheck.cpp)
     target_compile_definitions(fckrp_loadcheck PRIVATE
         JUCE_PLUGINHOST_VST3=1
-        JUCE_PLUGINHOST_AU=$<IF:$<BOOL:${APPLE}>,1,0>
+        JUCE_PLUGINHOST_AU=0
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
     target_link_libraries(fckrp_loadcheck PRIVATE
