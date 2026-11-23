@@ -323,6 +323,26 @@ void testBadInputRecovers()
     check (r.finite && r.peak < 4.0f, "Bad input: recovers after NaN/Inf input");
 }
 
+// Turning everything up must make it louder, never trigger the safety mute.
+void testLoudSettingsNotMuted()
+{
+    using namespace fckrp::ids;
+    const double fs = 48000.0;
+    const int bs = 256;
+    FckrpProcessor p;
+    p.setPlayConfigDetails (2, 2, fs, bs);
+    p.prepareToPlay (fs, bs);
+    p.setCurrentProgram (5);
+    setParam (p, output, 12.0f);
+    setParam (p, compMakeup, 24.0f);
+    setParam (p, polish, 1.0f);
+    setParam (p, satDrive, 1.0f);
+    const auto r = run (p, fs, bs, 4.0);
+    check (r.finite && r.rms > 0.3f && p.diagRunawayTrips.load() == 0 && p.diagSafetyTrips.load() == 0,
+           "Loud settings: everything turned up stays loud, safety mute does not trigger (rms "
+               + juce::String (r.rms, 2) + ")");
+}
+
 void allModulesOff (FckrpProcessor& p)
 {
     using namespace fckrp::ids;
@@ -602,6 +622,7 @@ int main (int argc, char** argv)
     testTamer();
     testModulePurity();
     testDelayIndexInRange();
+    testLoudSettingsNotMuted();
     if (withEditor)
         testEditor();
 

@@ -231,7 +231,6 @@ void FckrpProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     diagPrepares.fetch_add (1);
     diagPrepBlock.store (samplesPerBlock);
     diagRate.store (sampleRate);
-    runawaySamples = 0;
 
     const int numCh = std::max (2, getTotalNumOutputChannels());
 
@@ -307,7 +306,11 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Safety net: if anything ever went wrong inside, silence it and reset
     // instead of sending noise to the speakers, and never exceed +6 dBFS.
-    bool bad = false;
+    // A level above +60 dBFS inside the plugin can never come from music,
+    // even with every gain knob turned up: that is a runaway, so mute too.
+    // (Turning Output up must never trigger this, so it only reacts to
+    // absurd levels, not to a loud but normal signal.)
+    bool bad = false, runawayTrip = false;
     for (int ch = 0; ch < numCh; ++ch)
     {
         auto* d = buffer.getWritePointer (ch);
@@ -318,16 +321,11 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
                 bad = true;
                 break;
             }
+            if (std::abs (d[i]) > 1000.0f)
+                runawayTrip = true;
             d[i] = juce::jlimit (-2.0f, 2.0f, d[i]);
         }
     }
-    // Second safety net: output that sits at full scale and far above the
-    // input for 0.3 s is not music but a runaway, so mute and start fresh.
-    const float outPeak = buffer.getMagnitude (0, total);
-    const bool runaway = ! bad && ((outPeak >= 1.99f && outPeak > 2.0f * inPeak)
-                                   || (outPeak >= 0.98f && outPeak > 8.0f * inPeak));
-    runawaySamples = runaway ? runawaySamples + total : 0;
-    const bool runawayTrip = runawaySamples > (juce::int64) (0.3 * getSampleRate());
 
     if (bad || runawayTrip)
     {

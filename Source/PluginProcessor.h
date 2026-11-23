@@ -69,7 +69,6 @@ private:
 
     struct DiagLogger;
     std::unique_ptr<DiagLogger> diagLogger;
-    juce::int64 runawaySamples = 0;
 
     float get (const char* id) const { return params.at (id)->load(); }
     bool isOn (const char* id) const { return get (id) > 0.5f; }
