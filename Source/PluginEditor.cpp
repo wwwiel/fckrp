@@ -87,7 +87,7 @@ FckrpEditor::FckrpEditor (FckrpProcessor& p)
     addSection ("DE-ESS", dsOn, { { dsFreq, "Freq" }, { dsThresh, "Threshold" } });
     addSection ("OPTO", compOn, { { compThresh, "Threshold" }, { compRatio, "Ratio" }, { compAttack, "Attack" },
                                   { compRelease, "Release" }, { compMakeup, "Gain" }, { compMix, "Mix" } });
-    addSection ("TUBE", satOn, { { satDrive, "Drive" } });
+    addSection ("TUBE", satOn, { { satDrive, "Drive" }, { satChar, "Character" } });
     addSection ("DOUBLER", dblOn, { { dblAmount, "Amount" }, { dblDetune, "Detune" } });
     addSection ("DELAY", dlyOn, { { dlyTime, "Time" }, { dlyFeedback, "Feedback" }, { dlyMix, "Mix" } });
     addSection ("HALL", revOn, { { revSize, "Size" }, { revDamp, "Damping" }, { revMix, "Mix" } });

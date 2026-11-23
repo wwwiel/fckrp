@@ -32,6 +32,7 @@ inline constexpr const char* compMakeup  = "comp_makeup";
 
 inline constexpr const char* satOn       = "sat_on";
 inline constexpr const char* satDrive    = "sat_drive";
+inline constexpr const char* satChar     = "sat_char";
 
 inline constexpr const char* dlyOn       = "dly_on";
 inline constexpr const char* dlyTime     = "dly_time";
@@ -55,7 +56,7 @@ inline constexpr const char* width       = "width";
 inline constexpr const char* all[] = {
     polish, space, output, gateOn, gateThresh, eqOn, eqLowCut, eqMud, eqPresence, eqAir,
     dsOn, dsFreq, dsThresh, compOn, compThresh, compRatio, compAttack, compRelease, compMakeup,
-    satOn, satDrive, dlyOn, dlyTime, dlyFeedback, dlyMix, revOn, revSize, revDamp, revMix,
+    satOn, satDrive, satChar, dlyOn, dlyTime, dlyFeedback, dlyMix, revOn, revSize, revDamp, revMix,
     compMix, tameOn, tameDepth, tameSens, dblOn, dblAmount, dblDetune, width
 };
 } // namespace fckrp::ids

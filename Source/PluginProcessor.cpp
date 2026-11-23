@@ -82,6 +82,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     addBool (satOn, "Tube On", true);
     addFloat (satDrive, "Tube Drive", { 0.0f, 1.0f }, 0.15f, "");
+    addFloat (satChar, "Tube Character", { 0.0f, 1.0f }, 1.0f, "");
 
     addBool (dblOn, "Doubler On", false);
     addFloat (dblAmount, "Doubler Amount", { 0.0f, 1.0f }, 0.5f, "");
@@ -414,7 +415,8 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     compGainReductionDb.store (compGr);
     markStage (stOpto, buffer);
 
-    saturation.setAmount (get (satDrive) + 0.1f * pol);
+    saturation.setAmount (get (satDrive) + 0.25f * pol);
+    saturation.setCharacter (get (satChar));
     saturation.process (buffer, isOn (satOn));
     markStage (stTube, buffer);
 

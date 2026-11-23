@@ -33,6 +33,16 @@ public:
         drive.setTargetValue (juce::jlimit (0.0f, 1.0f, amount));
     }
 
+    // character: 0 = soft and clean (up to 12 dB drive, little asymmetry),
+    // 1 = hot, the original stronger sound (up to 24 dB drive, more even
+    // harmonics from a bigger bias).
+    void setCharacter (float character)
+    {
+        const float c = juce::jlimit (0.0f, 1.0f, character);
+        maxDriveDb = 12.0f + 12.0f * c;
+        bias = 0.05f + 0.10f * c;
+    }
+
     void process (juce::AudioBuffer<float>& buffer, bool enabled)
     {
         juce::dsp::AudioBlock<float> block (buffer);
@@ -40,7 +50,6 @@ public:
 
         const int numCh = (int) up.getNumChannels();
         const int n = (int) up.getNumSamples();
-        constexpr float bias = 0.05f;
         const float biasOut = std::tanh (bias);
 
         for (int i = 0; i < n; ++i)
@@ -49,7 +58,7 @@ public:
             if (! enabled || amt <= 0.0001f)
                 continue;
 
-            const float g = dbToGain (amt * 12.0f);
+            const float g = dbToGain (amt * maxDriveDb);
             const float comp = 1.0f / std::pow (g, 0.8f);
 
             for (int ch = 0; ch < numCh; ++ch)
@@ -74,5 +83,6 @@ private:
     juce::SmoothedValue<float> drive { 0.0f };
     std::vector<std::array<float, 2>> dcState;
     float dcCoef = 0.999f;
+    float maxDriveDb = 24.0f, bias = 0.15f;
 };
 } // namespace fckrp
