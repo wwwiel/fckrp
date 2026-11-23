@@ -53,6 +53,14 @@ target_compile_definitions(fckrp PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
+# JUCE writes Contents/Resources/moduleinfo.json into the VST3 bundle after
+# signing it, which breaks the ad-hoc signature on macOS. Re-sign afterwards.
+if(APPLE)
+    add_custom_command(TARGET fckrp_VST3 POST_BUILD
+        COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:fckrp_VST3>"
+        VERBATIM)
+endif()
+
 target_link_libraries(fckrp
     PRIVATE
         juce::juce_audio_utils
