@@ -43,7 +43,7 @@ jobs:
             configure: cmake -B build -DCMAKE_BUILD_TYPE=Release
             build: cmake --build build --config Release --target fckrp_VST3 --parallel
           - name: macOS
-            os: macos-14
+            os: macos-latest
             configure: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
             build: cmake --build build --config Release --target fckrp_VST3 fckrp_AU --parallel
     steps:
