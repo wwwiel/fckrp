@@ -5,6 +5,10 @@ project(fckrp VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Link the C++ runtime statically on Windows so the plugin does not depend on
+# the Visual C++ Redistributable being installed.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # JUCE is downloaded automatically. To use a local copy instead, configure with
 #   -DFETCHCONTENT_SOURCE_DIR_JUCE=/path/to/JUCE
 include(FetchContent)

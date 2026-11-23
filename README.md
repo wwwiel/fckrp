@@ -27,12 +27,23 @@ Das Signal läuft in dieser Reihenfolge durch die Module. Jedes Modul lässt sic
 ## In FL Studio installieren
 
 1. Auf GitHub unter **Actions** den neuesten erfolgreichen Lauf von „Build“ öffnen und unten bei *Artifacts* `fckrp-Windows` oder `fckrp-macOS` herunterladen und entpacken.
-2. `fckrp.vst3` kopieren nach
-   - **Windows:** `C:\Program Files\Common Files\VST3\`
-   - **Mac:** `/Library/Audio/Plug-Ins/VST3/` (die AU-Version `fckrp.component` nach `/Library/Audio/Plug-Ins/Components/`)
-3. **Nur Mac:** Das Plugin ist noch nicht bei Apple beglaubigt. Einmal im Terminal ausführen:
-   `xattr -cr /Library/Audio/Plug-Ins/VST3/fckrp.vst3`
-4. In FL Studio: *Options → Manage plugins → Find installed plugins*. Danach erscheint fckrp unter den Effekten und kann in einen Mixer-Insert geladen werden.
+
+**Windows**
+
+2. Den Ordner `fckrp.vst3` nach `C:\Program Files\Common Files\VST3\` kopieren.
+
+**Mac**
+
+2. Im entpackten Ordner liegt `fckrp-vst3.zip` (und `fckrp-au.zip`). Diese per Doppelklick ebenfalls entpacken.
+3. Im Finder *Gehe zu → Gehe zum Ordner…* wählen, `/Library/Audio/Plug-Ins/VST3` eingeben und `fckrp.vst3` dort hineinziehen (Passwort bestätigen). Die AU-Version `fckrp.component` gehört nach `/Library/Audio/Plug-Ins/Components`.
+4. Das Plugin ist noch nicht bei Apple beglaubigt, deshalb blockiert macOS es. Einmal im Terminal ausführen:
+   ```
+   sudo xattr -dr com.apple.quarantine /Library/Audio/Plug-Ins/VST3/fckrp.vst3
+   ```
+
+**Dann in FL Studio**
+
+5. *Options → Manage plugins → Find installed plugins* (mit Haken bei *Rescan previously verified plugins*). Danach erscheint fckrp unter den Effekten und kann in einen Mixer-Insert geladen werden.
 
 ## Selbst bauen
 

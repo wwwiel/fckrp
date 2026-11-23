@@ -65,6 +65,15 @@ jobs:
         run: |
           codesign --force --deep --sign - dist/fckrp.vst3
           codesign --force --deep --sign - dist/fckrp.component
+      - name: Zip plugins keeping file permissions (macOS)
+        # GitHub's artifact upload drops the executable bit inside bundles,
+        # which stops hosts from loading the plugin. ditto keeps it.
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          ditto -c -k --keepParent fckrp.vst3 fckrp-vst3.zip
+          ditto -c -k --keepParent fckrp.component fckrp-au.zip
+          rm -rf fckrp.vst3 fckrp.component
       - name: Upload plugin
         uses: actions/upload-artifact@v4
         with:
