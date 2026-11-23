@@ -48,6 +48,11 @@ public:
     std::atomic<float> outputLevelDb { -100.0f };
 
 private:
+    static constexpr int maxChunk = 512;
+
+    void processChunk (juce::AudioBuffer<float>& buffer);
+    void resetDsp();
+
     float get (const char* id) const { return params.at (id)->load(); }
     bool isOn (const char* id) const { return get (id) > 0.5f; }
 
@@ -65,6 +70,7 @@ private:
     juce::SmoothedValue<float> outputGain { 1.0f };
 
     int currentProgram = 0;
+    bool isPrepared = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FckrpProcessor)
 };

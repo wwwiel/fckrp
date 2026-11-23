@@ -47,31 +47,37 @@ int main (int argc, char** argv)
     }
 
     instance->enableAllBuses();
-    instance->setPlayConfigDetails (2, 2, 48000.0, 512);
-    instance->prepareToPlay (48000.0, 512);
+    // Announce a large maximum block (hosts must not exceed it on their side)
+    // and then send blocks of changing size, like FL Studio does.
+    instance->setPlayConfigDetails (2, 2, 48000.0, 8192);
+    instance->prepareToPlay (48000.0, 8192);
 
-    juce::AudioBuffer<float> buffer (2, 512);
     juce::MidiBuffer midi;
     float peak = 0.0f;
     bool finite = true;
-    for (int block = 0; block < 200; ++block)
-    {
-        for (int ch = 0; ch < 2; ++ch)
-            for (int i = 0; i < 512; ++i)
-                buffer.setSample (ch, i, 0.3f * std::sin ((float) (block * 512 + i) * 0.05f));
-        instance->processBlock (buffer, midi);
-        for (int ch = 0; ch < 2; ++ch)
-            for (int i = 0; i < 512; ++i)
-            {
-                const float x = buffer.getSample (ch, i);
-                finite = finite && std::isfinite (x);
-                peak = std::max (peak, std::abs (x));
-            }
-    }
+    const int sizes[] = { 512, 4096, 64, 1, 2048, 333, 8192 };
+    int64_t t = 0;
+    for (int rep = 0; rep < 30; ++rep)
+        for (int n : sizes)
+        {
+            juce::AudioBuffer<float> buffer (2, n);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < n; ++i)
+                    buffer.setSample (ch, i, 0.3f * std::sin ((float) (t + i) * 0.05f));
+            t += n;
+            instance->processBlock (buffer, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < n; ++i)
+                {
+                    const float x = buffer.getSample (ch, i);
+                    finite = finite && std::isfinite (x);
+                    peak = std::max (peak, std::abs (x));
+                }
+        }
     instance->releaseResources();
 
     std::printf ("processed audio: peak %.3f, %s\n", peak, finite ? "no NaN/Inf" : "NaN/Inf found");
-    if (! finite || peak <= 0.0001f)
+    if (! finite || peak <= 0.0001f || peak > 1.5f)
     {
         std::printf ("FAIL  audio output is broken\n");
         return 1;

@@ -4,6 +4,7 @@
 #include "Presets.h"
 
 #include <cstdio>
+#include <limits>
 
 namespace
 {
@@ -257,6 +258,70 @@ void testEditor()
     juce::PNGImageFormat().writeImageToStream (img, os);
     std::printf ("      UI snapshot: %s\n", out.getFullPathName().toRawUTF8());
 }
+
+// Hosts like FL Studio may send blocks larger than the size given to
+// prepareToPlay, and change the size from block to block.
+void testOversizedAndVariableBlocks()
+{
+    const double fs = 44100.0;
+    FckrpProcessor p;
+    p.setPlayConfigDetails (2, 2, fs, 64);
+    p.prepareToPlay (fs, 64);
+    p.setCurrentProgram (0);
+
+    juce::MidiBuffer midi;
+    juce::Random rng (7);
+    int64_t t = 0;
+    bool finite = true;
+    float peak = 0.0f;
+    const int sizes[] = { 64, 1024, 4096, 1, 333, 2048, 8192, 17, 512 };
+    for (int rep = 0; rep < 20; ++rep)
+        for (int n : sizes)
+        {
+            juce::AudioBuffer<float> buf (2, n);
+            fillVocalLike (buf, fs, t, rng);
+            p.processBlock (buf, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < n; ++i)
+                {
+                    const float x = buf.getSample (ch, i);
+                    finite = finite && std::isfinite (x);
+                    peak = std::max (peak, std::abs (x));
+                }
+        }
+    check (finite, "Block sizes: no NaN/Inf with blocks larger than prepared");
+    check (peak < 1.5f, "Block sizes: stays at normal level (peak " + juce::String (peak, 2) + ")");
+}
+
+void testUnprepared()
+{
+    FckrpProcessor p;
+    juce::AudioBuffer<float> buf (2, 256);
+    buf.applyGain (0.0f);
+    for (int i = 0; i < 256; ++i) { buf.setSample (0, i, 0.5f); buf.setSample (1, i, 0.5f); }
+    juce::MidiBuffer midi;
+    p.processBlock (buf, midi);
+    check (buf.getMagnitude (0, 256) == 0.0f, "Unprepared: outputs silence before prepareToPlay");
+}
+
+// A NaN or Inf coming in must not get stuck in the filters and reverb.
+void testBadInputRecovers()
+{
+    const double fs = 48000.0;
+    const int bs = 256;
+    FckrpProcessor p;
+    p.setPlayConfigDetails (2, 2, fs, bs);
+    p.prepareToPlay (fs, bs);
+    p.setCurrentProgram (5);
+    juce::AudioBuffer<float> buf (2, bs);
+    juce::MidiBuffer midi;
+    buf.clear();
+    buf.setSample (0, 10, std::numeric_limits<float>::quiet_NaN());
+    buf.setSample (1, 20, std::numeric_limits<float>::infinity());
+    p.processBlock (buf, midi);
+    const auto r = run (p, fs, bs, 2.0);
+    check (r.finite && r.peak < 4.0f, "Bad input: recovers after NaN/Inf input");
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -271,6 +336,9 @@ int main (int argc, char** argv)
     testSilenceTail();
     testMono();
     testState();
+    testOversizedAndVariableBlocks();
+    testBadInputRecovers();
+    testUnprepared();
     if (withEditor)
         testEditor();
 

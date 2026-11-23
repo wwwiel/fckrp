@@ -114,7 +114,12 @@ bool FckrpProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void FckrpProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    const int numCh = std::max (1, getTotalNumOutputChannels());
+    const int numCh = std::max (2, getTotalNumOutputChannels());
+
+    // Hosts may send bigger blocks than announced here (FL Studio does), so
+    // all internal buffers are sized for a fixed chunk and processBlock()
+    // splits whatever arrives into chunks of at most this size.
+    samplesPerBlock = maxChunk;
 
     gate.prepare (sampleRate);
     eq.prepare (sampleRate, numCh);
@@ -126,17 +131,77 @@ void FckrpProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     outputGain.reset (sampleRate, 0.05);
 
     setLatencySamples ((int) std::round (saturation.getLatencySamples()));
+    isPrepared = true;
 }
 
 void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
-    using namespace fckrp::ids;
     juce::ScopedNoDenormals noDenormals;
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear (ch, 0, buffer.getNumSamples());
 
-    inputLevelDb.store (fckrp::gainToDb (buffer.getMagnitude (0, buffer.getNumSamples())));
+    const int numCh = buffer.getNumChannels();
+    const int total = buffer.getNumSamples();
+
+    // Some hosts call this before prepareToPlay(): output silence then.
+    if (! isPrepared)
+    {
+        buffer.clear();
+        return;
+    }
+
+    // Never let NaN/Inf from the host into the filters.
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < total; ++i)
+            if (! std::isfinite (d[i]))
+                d[i] = 0.0f;
+    }
+
+    inputLevelDb.store (fckrp::gainToDb (buffer.getMagnitude (0, total)));
+
+    for (int start = 0; start < total; start += maxChunk)
+    {
+        const int len = std::min (maxChunk, total - start);
+        juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numCh, start, len);
+        processChunk (chunk);
+    }
+
+    // Safety net: if anything ever went wrong inside, silence it and reset
+    // instead of sending noise to the speakers, and never exceed +6 dBFS.
+    bool bad = false;
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < total; ++i)
+        {
+            if (! std::isfinite (d[i]))
+            {
+                bad = true;
+                break;
+            }
+            d[i] = juce::jlimit (-2.0f, 2.0f, d[i]);
+        }
+    }
+    if (bad)
+    {
+        buffer.clear();
+        resetDsp();
+    }
+
+    outputLevelDb.store (fckrp::gainToDb (buffer.getMagnitude (0, total)));
+}
+
+void FckrpProcessor::resetDsp()
+{
+    prepareToPlay (getSampleRate() > 0.0 ? getSampleRate() : 44100.0, maxChunk);
+}
+
+void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
+{
+    using namespace fckrp::ids;
 
     // The two macro knobs push several settings at once.
     const float pol = get (polish);
@@ -190,8 +255,6 @@ void FckrpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
 
     outputGain.setTargetValue (fckrp::dbToGain (get (output)));
     outputGain.applyGain (buffer, buffer.getNumSamples());
-
-    outputLevelDb.store (fckrp::gainToDb (buffer.getMagnitude (0, buffer.getNumSamples())));
 }
 
 juce::AudioProcessorEditor* FckrpProcessor::createEditor()
