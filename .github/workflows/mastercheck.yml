@@ -1,0 +1,101 @@
+name: fckrp check (master analyser)
+
+on:
+  push:
+    branches: [main]
+    paths: ["mastercheck/**", ".github/workflows/mastercheck.yml"]
+  pull_request:
+    paths: ["mastercheck/**", ".github/workflows/mastercheck.yml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: mastercheck
+
+jobs:
+  test:
+    name: Offline tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCHECK_BUILD_TESTS=ON
+      - name: Build tests
+        run: cmake --build build --target mastercheck_tests --parallel
+      - name: Run tests
+        run: xvfb-run -a ./build/mastercheck_tests_artefacts/Release/mastercheck_tests --editor
+      - name: Upload UI snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fckrp-check-ui-snapshot
+          path: mastercheck/mastercheck_ui.png
+          if-no-files-found: ignore
+
+  build:
+    name: Plugin (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release
+            build: cmake --build build --config Release --target fckrp_check_VST3 --parallel
+          - name: macOS
+            os: macos-latest
+            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCHECK_BUILD_LOADCHECK=ON
+            build: cmake --build build --config Release --target fckrp_check_VST3 fckrp_check_AU mastercheck_loadcheck --parallel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: ${{ matrix.configure }}
+      - name: Build
+        run: ${{ matrix.build }}
+      - name: Collect plugin files
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp -R "build/fckrp_check_artefacts/Release/VST3/fckrp check.vst3" dist/
+          if [ -d "build/fckrp_check_artefacts/Release/AU/fckrp check.component" ]; then
+            cp -R "build/fckrp_check_artefacts/Release/AU/fckrp check.component" dist/
+          fi
+      - name: Ad-hoc sign, installer and zips (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - "dist/fckrp check.vst3"
+          codesign --force --deep --sign - "dist/fckrp check.component"
+          mkdir -p pkgroot/Library/Audio/Plug-Ins/VST3 pkgroot/Library/Audio/Plug-Ins/Components
+          ditto "dist/fckrp check.vst3" "pkgroot/Library/Audio/Plug-Ins/VST3/fckrp check.vst3"
+          ditto "dist/fckrp check.component" "pkgroot/Library/Audio/Plug-Ins/Components/fckrp check.component"
+          pkgbuild --analyze --root pkgroot components.plist
+          i=0
+          while /usr/libexec/PlistBuddy -c "Print :$i" components.plist > /dev/null 2>&1; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist \
+              || /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" components.plist
+            i=$((i + 1))
+          done
+          pkgbuild --root pkgroot --component-plist components.plist \
+            --identifier com.fckrp.check.installer --version 0.1.0 --install-location / \
+            dist/fckrp-check-Installer.pkg
+          cd dist
+          ditto -c -k --keepParent "fckrp check.vst3" fckrp-check-vst3.zip
+          ditto -c -k --keepParent "fckrp check.component" fckrp-check-au.zip
+          rm -rf "fckrp check.vst3" "fckrp check.component"
+      - name: Load check from the downloaded zip (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p /tmp/check
+          ditto -x -k dist/fckrp-check-vst3.zip /tmp/check
+          ./build/mastercheck_loadcheck_artefacts/Release/mastercheck_loadcheck "/tmp/check/fckrp check.vst3"
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: fckrp-check-${{ matrix.name }}
+          path: mastercheck/dist/
