@@ -1,0 +1,106 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Offline tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFCKRP_BUILD_TESTS=ON
+      - name: Build tests
+        run: cmake --build build --target fckrp_tests --parallel
+      - name: Run tests
+        run: xvfb-run -a ./build/fckrp_tests_artefacts/Release/fckrp_tests --editor
+      - name: Upload UI snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fckrp-ui-snapshot
+          path: fckrp_ui.png
+          if-no-files-found: ignore
+
+  build:
+    name: Plugin (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release
+            build: cmake --build build --config Release --target fckrp_VST3 --parallel
+          - name: macOS
+            os: macos-latest
+            configure: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DFCKRP_BUILD_LOADCHECK=ON
+            build: cmake --build build --config Release --target fckrp_VST3 fckrp_AU fckrp_loadcheck --parallel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: ${{ matrix.configure }}
+      - name: Build
+        run: ${{ matrix.build }}
+      - name: Collect plugin files
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp -R build/fckrp_artefacts/Release/VST3/fckrp.vst3 dist/
+          if [ -d build/fckrp_artefacts/Release/AU/fckrp.component ]; then
+            cp -R build/fckrp_artefacts/Release/AU/fckrp.component dist/
+          fi
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - dist/fckrp.vst3
+          codesign --force --deep --sign - dist/fckrp.component
+      - name: Build installer (macOS)
+        # Installs into /Library/Audio/Plug-Ins, the folders FL Studio scans by default.
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p pkgroot/Library/Audio/Plug-Ins/VST3 pkgroot/Library/Audio/Plug-Ins/Components
+          ditto dist/fckrp.vst3 pkgroot/Library/Audio/Plug-Ins/VST3/fckrp.vst3
+          ditto dist/fckrp.component pkgroot/Library/Audio/Plug-Ins/Components/fckrp.component
+          pkgbuild --analyze --root pkgroot components.plist
+          i=0
+          while /usr/libexec/PlistBuddy -c "Print :$i" components.plist > /dev/null 2>&1; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist \
+              || /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" components.plist
+            i=$((i + 1))
+          done
+          cat components.plist
+          pkgbuild --root pkgroot --component-plist components.plist \
+            --identifier com.fckrp.installer --version 0.1.0 --install-location / \
+            dist/fckrp-Installer.pkg
+      - name: Zip plugins keeping file permissions (macOS)
+        # GitHub's artifact upload drops the executable bit inside bundles,
+        # which stops hosts from loading the plugin. ditto keeps it.
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          ditto -c -k --keepParent fckrp.vst3 fckrp-vst3.zip
+          ditto -c -k --keepParent fckrp.component fckrp-au.zip
+          rm -rf fckrp.vst3 fckrp.component
+      - name: Load check from the downloaded zip (macOS)
+        # Unpack the zip the way a user would and open the plugin like a DAW.
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p /tmp/check
+          ditto -x -k dist/fckrp-vst3.zip /tmp/check
+          ./build/fckrp_loadcheck_artefacts/Release/fckrp_loadcheck /tmp/check/fckrp.vst3
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: fckrp-${{ matrix.name }}
+          path: dist/
