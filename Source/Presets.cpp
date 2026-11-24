@@ -68,7 +68,7 @@ const std::vector<Preset>& getFactoryPresets()
         // it a thick, dense, upfront lead that stays in the centre.
         { "Lukas Lead",
           { { input, 12.0f }, { polish, 0.0f }, { space, 0.0f },
-            { gateThresh, -36.0f },
+            { gateThresh, -26.0f },
             { eqLowCut, 75.0f }, { eqBody, 3.0f }, { eqMud, -7.0f }, { eqPresence, 8.0f }, { eqAir, 8.0f },
             { dsLate, 1.0f }, { dsFreq, 5500.0f }, { dsThresh, -32.0f },
             { compThresh, -24.0f }, { compRatio, 4.0f }, { compAttack, 3.0f }, { compRelease, 0.15f }, { compMakeup, 6.0f }, { compMix, 0.85f },
@@ -81,7 +81,7 @@ const std::vector<Preset>& getFactoryPresets()
         // bottom and tucked behind the lead.
         { "Lukas Second",
           { { input, 12.0f }, { polish, 0.0f }, { space, 0.0f }, { output, -2.0f },
-            { gateThresh, -34.0f },
+            { gateThresh, -24.0f },
             { eqLowCut, 150.0f }, { eqBody, 0.0f }, { eqMud, -7.0f }, { eqPresence, 5.0f }, { eqAir, 6.0f },
             { dsLate, 1.0f }, { dsFreq, 5500.0f }, { dsThresh, -40.0f },
             { compThresh, -28.0f }, { compRatio, 6.0f }, { compAttack, 3.0f }, { compRelease, 0.12f }, { compMakeup, 6.0f },
