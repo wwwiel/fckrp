@@ -34,6 +34,8 @@ struct Measurements
     float maxTruePeakDb = -200, maxSamplePeakDb = -200;
     int overs = 0, clips = 0;
     float correlation = 1, monoDropDb = 0;
+    float compGr = 0, limGr = 0; // typical gain reduction of the fix chain (dB, highest 3 s average)
+    bool densityOn = false;
     SpectrumSnapshot spectrum;
 };
 

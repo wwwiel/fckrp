@@ -406,6 +406,96 @@ static void testReferenceFile()
     check (p.analyseReferenceFile (juce::File ("/nonexistent.wav")).isNotEmpty(), "bad file gives an error, no crash");
 }
 
+static void testVideoTips()
+{
+    auto mid = ShapedNoise::make (builtInCurves[0], [] (double) { return 0.0f; }, 0.0, 13);
+    scaleTo (mid, -16.0f);
+    const int n = (int) mid.size();
+    auto play = [&] (CheckProcessor& p, double secs) { feed (p, secs, [&] (int i, float& l, float& r) { l = r = mid[(size_t) (i % n)]; }); };
+
+    // Density: louder, but peaks don't grow.
+    CheckProcessor a, b;
+    a.prepareToPlay (fs, 512);
+    b.prepareToPlay (fs, 512);
+    setP (b, ids::densOn, 1.0f);
+    setP (b, ids::densAmount, 1.0f);
+    play (a, 10.0);
+    play (b, 10.0);
+    const auto ma = a.getMeasurements(), mb = b.getMeasurements();
+    check (mb.integrated > ma.integrated + 1.5f, "DICHTE makes it louder", mb.integrated - ma.integrated);
+    const float plrA = ma.maxTruePeakDb - ma.integrated, plrB = mb.maxTruePeakDb - mb.integrated;
+    check (plrB < plrA - 1.0f, "DICHTE raises loudness more than peaks (denser)", plrA - plrB);
+    check (DensityShaper::curve (1.0f) == 1.0f && DensityShaper::curve (-0.5f) < -0.5f, "density curve keeps full scale, lifts quiet parts");
+
+    // Limiter pushed 9 dB: the advice says it works too hard.
+    CheckProcessor c;
+    c.prepareToPlay (fs, 512);
+    setP (c, ids::limOn, 1.0f);
+    setP (c, ids::limGain, 12.0f);
+    play (c, 12.0);
+    const auto mc = c.getMeasurements();
+    check (mc.limGr > 3.0f, "limiter gain reduction is tracked", mc.limGr);
+    check (hasHint (makeHints (mc, c.getSettings()), "Limiter arbeitet zu hart"), "too much limiting gives the 3 dB warning");
+
+    // Gentle settings: no warning.
+    CheckProcessor d;
+    d.prepareToPlay (fs, 512);
+    setP (d, ids::limOn, 1.0f);
+    setP (d, ids::limGain, 3.0f);
+    setP (d, ids::compOn, 1.0f);
+    setP (d, ids::compThresh, -12.0f);
+    play (d, 12.0);
+    const auto md = d.getMeasurements();
+    const auto hd = makeHints (md, d.getSettings());
+    check (! hasHint (hd, "Limiter arbeitet zu hart"), "gentle limiting: no warning", md.limGr);
+    check (md.compGr > 0.3f && md.compGr < 4.0f, "compressor reduction measured", md.compGr);
+
+    // Side EQ leaves the mono sum alone.
+    CheckProcessor e;
+    e.prepareToPlay (fs, 512);
+    setP (e, ids::stereoOn, 1.0f);
+    setP (e, ids::monoBelow, 0.0f);
+    setP (e, ids::sideMid, 6.0f);
+    setP (e, ids::sideAir, 6.0f);
+    std::mt19937 rng (4);
+    std::normal_distribution<float> nd (0.0f, 0.1f);
+    juce::MidiBuffer midi;
+    double errSum = 0, sigSum = 0;
+    std::vector<float> monoIn;
+    const int lat = e.getLatencySamples();
+    for (int blk = 0; blk < 40; ++blk)
+    {
+        juce::AudioBuffer<float> buf (2, 512);
+        for (int i = 0; i < 512; ++i)
+        {
+            const float l = nd (rng), r = nd (rng);
+            buf.setSample (0, i, l);
+            buf.setSample (1, i, r);
+            monoIn.push_back (l + r);
+        }
+        e.processBlock (buf, midi);
+        for (int i = 0; i < 512; ++i)
+        {
+            const size_t idx = (size_t) (blk * 512 + i);
+            if (idx >= (size_t) lat)
+            {
+                const double out = buf.getSample (0, i) + buf.getSample (1, i);
+                errSum += std::pow (out - monoIn[idx - (size_t) lat], 2.0);
+                sigSum += std::pow (monoIn[idx - (size_t) lat], 2.0);
+            }
+        }
+    }
+    check (errSum < sigSum * 1.0e-8, "side EQ doesn't change the mono sum", errSum / sigSum);
+
+    // Auto-LUFS with a big jump switches DICHTE on so the limiter works less.
+    CheckProcessor f;
+    f.prepareToPlay (fs, 512);
+    f.setTarget (2); // -7 LUFS
+    play (f, 15.0);
+    f.applyAutoLoudness();
+    check (f.params.getRawParameterValue (ids::densOn)->load() > 0.5f, "Auto-LUFS turns DICHTE on for big jumps");
+}
+
 static void testState()
 {
     CheckProcessor p;
@@ -442,6 +532,7 @@ static void testEditor()
     setP (p, ids::eqOn, 1.0f);
     setP (p, ids::eqBand (4), -2.0f);
     setP (p, ids::limOn, 1.0f);
+    setP (p, ids::densOn, 1.0f);
     std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
     if (auto* ce = dynamic_cast<CheckEditor*> (ed.get()))
         ce->refresh();
@@ -469,6 +560,7 @@ int main (int argc, char** argv)
     testAutoEq();
     testStereoTool();
     testReferenceFile();
+    testVideoTips();
     testState();
     if (withEditor)
         testEditor();

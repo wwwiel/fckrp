@@ -7,7 +7,7 @@ namespace col = mcheck::colours;
 
 namespace
 {
-constexpr int editorWidth = 1120, editorHeight = 850;
+constexpr int editorWidth = 1240, editorHeight = 850;
 
 juce::Font font (float size, bool bold = false)
 {
@@ -73,21 +73,42 @@ FixPanel::FixPanel (CheckProcessor& p, std::function<void (const juce::String&)>
     setupToggle (fixToggle, fixOn, u8 ("Fix aktiv (aus = Vergleich ohne)"));
     setupToggle (eqToggle, eqOn, "");
     setupToggle (compToggle, compOn, "");
+    setupToggle (densToggle, densOn, "");
     setupToggle (stereoToggle, stereoOn, "");
     setupToggle (limToggle, limOn, "");
 
     for (int b = 0; b < numEqBands; ++b)
-        setupKnob (eqKnobs[(size_t) b], eqBand (b), u8 (eqNames[(size_t) b]), true);
+    {
+        auto& k = eqKnobs[(size_t) b];
+        setupKnob (k, eqBand (b), u8 (eqNames[(size_t) b]), true);
+        // Narrow sliders: show just the number ("-2,0").
+        k.slider.textFromValueFunction = [] (double v) { return signedNum (v, 1); };
+        k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 40, 16);
+        k.slider.updateText();
+    }
     setupKnob (thresh, compThresh, "THRESH", false);
     setupKnob (ratio, compRatio, "RATIO", false);
     setupKnob (attack, compAttack, "ATTACK", false);
     setupKnob (release, compRelease, "RELEASE", false);
     setupKnob (makeup, compMakeup, "MAKEUP", false);
-    setupKnob (monoBelow, mcheck::ids::monoBelow, "MONO UNTER", false);
+    setupKnob (peak, compPeak, "PEAK", false);
+    setupKnob (densAmount, mcheck::ids::densAmount, "MENGE", false);
+    setupKnob (densDrive, mcheck::ids::densDrive, "DRIVE", false);
+    setupKnob (monoBelow, mcheck::ids::monoBelow, "MONO <", false);
     setupKnob (width, mcheck::ids::width, "BREITE", false);
+    setupKnob (sideMid, mcheck::ids::sideMid, "S-MITTE", false);
+    setupKnob (sideAir, mcheck::ids::sideAir, "S-AIR", false);
     setupKnob (limGain, mcheck::ids::limGain, "GAIN", false);
     setupKnob (ceiling, limCeiling, "CEILING", false);
     setupKnob (limRelease, mcheck::ids::limRelease, "RELEASE", false);
+    setupKnob (limLink, mcheck::ids::limLink, "LINK", false);
+    thresh.slider.setTooltip (u8 ("Ziel: nur 1–2 dB Reduktion"));
+    peak.slider.setTooltip (u8 ("0 % = reine RMS-Kompression (unhörbar), 100 % = Peaks"));
+    densAmount.slider.setTooltip (u8 ("Holt leise Details hoch, Peaks bleiben – lauter ohne den Limiter zu quälen"));
+    monoBelow.slider.setTooltip (u8 ("Alles darunter wird mono (Bass/808)"));
+    sideMid.slider.setTooltip (u8 ("Side-Glocke bei 2,5 kHz: breiter, ohne die Mitte zu ändern"));
+    sideAir.slider.setTooltip (u8 ("Air ab 10 kHz nur auf der Side"));
+    limLink.slider.setTooltip (u8 ("60–80 % klingt meist natürlicher als 100 %"));
 
     autoEqButton.setButtonText ("Auto-EQ");
     autoEqButton.setTooltip (u8 ("Stellt den EQ nach der Analyse ein (ca. 60 % der Abweichung)"));
@@ -113,7 +134,7 @@ void FixPanel::setupKnob (Knob& k, const juce::String& id, const juce::String& l
 {
     k.label = label;
     k.slider.setSliderStyle (vertical ? juce::Slider::LinearVertical : juce::Slider::RotaryHorizontalVerticalDrag);
-    k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 16);
+    k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
     k.slider.setColour (juce::Slider::textBoxTextColourId, col::text);
     k.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     k.slider.setColour (juce::Slider::rotarySliderFillColourId, col::accent);
@@ -147,12 +168,14 @@ void FixPanel::resized()
     auto top = r.removeFromTop (30).reduced (0, 4);
     fixToggle.setBounds (top.removeFromRight (280));
 
-    const int gap = 14;
-    eqArea = r.removeFromLeft (370);
+    const int gap = 10;
+    eqArea = r.removeFromLeft (276);
     r.removeFromLeft (gap);
-    compArea = r.removeFromLeft (310);
+    compArea = r.removeFromLeft (330);
     r.removeFromLeft (gap);
-    stereoArea = r.removeFromLeft (140);
+    densArea = r.removeFromLeft (104);
+    r.removeFromLeft (gap);
+    stereoArea = r.removeFromLeft (206);
     r.removeFromLeft (gap);
     limArea = r;
 
@@ -165,6 +188,7 @@ void FixPanel::resized()
         autoEqButton.setBounds (t.removeFromRight (90).reduced (0, 2));
     }
     compToggle.setBounds (title (compArea).removeFromLeft (24));
+    densToggle.setBounds (title (densArea).removeFromLeft (24));
     stereoToggle.setBounds (title (stereoArea).removeFromLeft (24));
     {
         auto t = title (limArea);
@@ -177,11 +201,12 @@ void FixPanel::resized()
         auto a = content (eqArea);
         const int w = a.getWidth() / numEqBands;
         for (auto& k : eqKnobs)
-            k.slider.setBounds (a.removeFromLeft (w).withTrimmedTop (16).reduced (4, 0));
+            k.slider.setBounds (a.removeFromLeft (w).withTrimmedTop (16).reduced (1, 0));
     }
-    placeKnobs (content (compArea), { &thresh, &ratio, &attack, &release, &makeup });
-    placeKnobs (content (stereoArea), { &monoBelow, &width });
-    placeKnobs (content (limArea), { &limGain, &ceiling, &limRelease });
+    placeKnobs (content (compArea), { &thresh, &ratio, &attack, &release, &makeup, &peak });
+    placeKnobs (content (densArea), { &densAmount, &densDrive });
+    placeKnobs (content (stereoArea), { &monoBelow, &width, &sideMid, &sideAir });
+    placeKnobs (content (limArea), { &limGain, &ceiling, &limRelease, &limLink });
 }
 
 void FixPanel::updateMeters()
@@ -199,7 +224,7 @@ void FixPanel::paint (juce::Graphics& g)
     g.drawText (u8 ("MASTER-FIX"), 14, 6, 200, 20, juce::Justification::centredLeft);
     g.setColour (col::dim);
     g.setFont (font (12.0f));
-    g.drawText (u8 ("Reihenfolge: EQ → Komp → Stereo → Limiter. Die Analyse oben misst das Ergebnis."), 130, 6, 560, 20,
+    g.drawText (u8 ("Reihenfolge: EQ → Komp → Dichte → Stereo → Limiter (max. 3 dB). Die Analyse oben misst das Ergebnis."), 130, 6, 560, 20,
                 juce::Justification::centredLeft);
 
     auto section = [&] (juce::Rectangle<int> a, const juce::String& name, const juce::String& extra)
@@ -208,18 +233,20 @@ void FixPanel::paint (juce::Graphics& g)
         g.fillRoundedRectangle (a.toFloat(), 6.0f);
         g.setColour (col::text);
         g.setFont (font (13.0f, true));
-        g.drawText (name, a.getX() + 26, a.getY() + 4, 90, 18, juce::Justification::centredLeft);
+        g.drawText (name, a.getX() + 26, a.getY() + 4, 110, 18, juce::Justification::centredLeft);
         if (extra.isNotEmpty())
         {
             g.setColour (col::accent);
             g.setFont (font (12.0f, true));
-            g.drawText (extra, a.getX() + 26 + 96, a.getY() + 4, 110, 18, juce::Justification::centredLeft);
+            g.drawText (extra, a.getX() + 26 + 96, a.getY() + 4, a.getWidth() - 26 - 96 - 4 - (a == limArea ? 96 : 0), 18,
+                        juce::Justification::centredLeft);
         }
     };
     section (eqArea, "EQ", {});
     section (compArea, "KOMPRESSOR", compGr > 0.05f ? u8 ("GR -") + num (compGr) + " dB" : juce::String());
-    section (stereoArea, "STEREO", {});
-    section (limArea, "LIMITER", limGr > 0.05f ? u8 ("GR -") + num (limGr) + " dB" : juce::String());
+    section (densArea, "DICHTE", {});
+    section (stereoArea, "STEREO / SIDE", {});
+    section (limArea, "LIMITER", limGr > 0.05f ? u8 ("GR -") + num (limGr) + " dB" + (limGr > 3.0f ? u8 (" (zu viel)") : juce::String()) : juce::String());
 
     g.setColour (col::dim);
     g.setFont (font (10.5f, true));
@@ -228,9 +255,15 @@ void FixPanel::paint (juce::Graphics& g)
         const auto b = k.slider.getBounds();
         g.drawText (k.label, b.getX() - 6, b.getY() - 15, b.getWidth() + 12, 14, juce::Justification::centred);
     };
+    g.setFont (font (9.5f, true));
     for (auto& k : eqKnobs)
-        label (k);
-    for (auto* k : { &thresh, &ratio, &attack, &release, &makeup, &monoBelow, &width, &limGain, &ceiling, &limRelease })
+    {
+        const auto b = k.slider.getBounds();
+        g.drawFittedText (k.label, b.getX() - 1, b.getY() - 15, b.getWidth() + 2, 14, juce::Justification::centred, 1, 0.75f);
+    }
+    g.setFont (font (10.5f, true));
+    for (auto* k : { &thresh, &ratio, &attack, &release, &makeup, &peak, &densAmount, &densDrive, &monoBelow, &width,
+                     &sideMid, &sideAir, &limGain, &ceiling, &limRelease, &limLink })
         label (*k);
 }
 

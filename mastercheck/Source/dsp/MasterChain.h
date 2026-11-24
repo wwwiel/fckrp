@@ -121,10 +121,14 @@ private:
 class GlueCompressor
 {
 public:
-    void prepare (double sampleRate) { fs = sampleRate; env = 0; gr.store (0.0f); }
+    void prepare (double sampleRate) { fs = sampleRate; env = 0; peakEnv = 0; gr.store (0.0f); }
 
-    void setParams (float thresholdDb, float ratio_, float attackMs, float releaseMs, float makeupDb, float mix_)
+    // peak_: 0 = pure RMS detection (smooth, inaudible), 1 = pure peak detection.
+    void setParams (float thresholdDb, float ratio_, float attackMs, float releaseMs, float makeupDb, float mix_,
+                    float peak_ = 0.2f)
     {
+        peakBlend = juce::jlimit (0.0f, 1.0f, peak_);
+        peakAtt = (float) std::exp (-1.0 / (0.001 * fs));
         threshold = thresholdDb;
         ratio = std::max (1.0f, ratio_);
         att = (float) std::exp (-1.0 / (std::max (0.1f, attackMs) * 0.001 * fs));
@@ -144,7 +148,11 @@ public:
                 p = std::max (p, data[ch][i] * data[ch][i]);
             // RMS-like detector: smooth the power with attack/release.
             env = p > env ? att * env + (1 - att) * p : rel * env + (1 - rel) * p;
-            const float lvl = env > 1.0e-12f ? 10.0f * std::log10 (env) : -120.0f;
+            // Peak detector: fast attack, same release.
+            peakEnv = p > peakEnv ? peakAtt * peakEnv + (1 - peakAtt) * p : rel * peakEnv + (1 - rel) * p;
+            const float rmsDb = env > 1.0e-12f ? 10.0f * std::log10 (env) + 3.0f : -120.0f; // +3: sine RMS -> peak scale
+            const float pkDb = peakEnv > 1.0e-12f ? 10.0f * std::log10 (peakEnv) : -120.0f;
+            const float lvl = rmsDb + peakBlend * (pkDb - rmsDb);
             const float over = lvl - threshold;
             float reduce = 0;
             if (over > knee * 0.5f)
@@ -168,7 +176,8 @@ public:
 private:
     double fs = 48000.0;
     float threshold = -18, ratio = 2, att = 0.99f, rel = 0.999f, makeup = 1, mix = 1;
-    float env = 0;
+    float peakBlend = 0.2f, peakAtt = 0.98f;
+    float env = 0, peakEnv = 0;
 };
 
 // Makes the low end mono below a crossover (side signal high-passed with a
@@ -177,6 +186,22 @@ class StereoTool
 {
 public:
     void prepare (double sampleRate) { fs = sampleRate; freq = -1; for (auto& s : hp) s = {}; }
+
+    // sideMidDb: bell at 2.5 kHz on the side only (wider mids without changing the mono balance).
+    // sideAirDb: high shelf at 10 kHz on the side only.
+    void setSideEq (float sideMidDb, float sideAirDb)
+    {
+        if (std::abs (sideMidDb - sideMid) > 1.0e-3f)
+        {
+            sideMid = sideMidDb;
+            midBell = bell (2500.0, sideMid, 0.7);
+        }
+        if (std::abs (sideAirDb - sideAir) > 1.0e-3f)
+        {
+            sideAir = sideAirDb;
+            airShelf = highShelf (10000.0, sideAir);
+        }
+    }
 
     void setParams (float monoBelowHz, float width_)
     {
@@ -209,6 +234,10 @@ public:
                     st.z2 = c[2] * s - c[4] * y;
                     s = y;
                 }
+            if (std::abs (sideMid) > 0.01f)
+                s = run (midBell, midState, s);
+            if (std::abs (sideAir) > 0.01f)
+                s = run (airShelf, airState, s);
             s *= width;
             data[0][i] = (float) (m + s);
             data[1][i] = (float) (m - s);
@@ -217,10 +246,80 @@ public:
 
 private:
     struct State { double z1 = 0, z2 = 0; };
+    using Coeffs = std::array<double, 5>;
+
+    static double run (const Coeffs& c, State& st, double x)
+    {
+        const double y = c[0] * x + st.z1;
+        st.z1 = c[1] * x - c[3] * y + st.z2;
+        st.z2 = c[2] * x - c[4] * y;
+        return y;
+    }
+
+    Coeffs bell (double f, double db, double q) const
+    {
+        const double pi = 3.14159265358979323846;
+        const double A = std::pow (10.0, db / 40.0), w = 2.0 * pi * std::min (f, fs * 0.45) / fs;
+        const double alpha = std::sin (w) / (2.0 * q), cw = std::cos (w);
+        const double a0 = 1 + alpha / A;
+        return { (1 + alpha * A) / a0, -2 * cw / a0, (1 - alpha * A) / a0, -2 * cw / a0, (1 - alpha / A) / a0 };
+    }
+
+    Coeffs highShelf (double f, double db) const
+    {
+        const double pi = 3.14159265358979323846;
+        const double A = std::pow (10.0, db / 40.0), w = 2.0 * pi * std::min (f, fs * 0.45) / fs;
+        const double cw = std::cos (w), alpha = std::sin (w) / 2.0 * std::sqrt (2.0), k = 2.0 * std::sqrt (A) * alpha;
+        const double a0 = (A + 1) - (A - 1) * cw + k;
+        return { A * ((A + 1) + (A - 1) * cw + k) / a0, -2 * A * ((A - 1) + (A + 1) * cw) / a0,
+                 A * ((A + 1) + (A - 1) * cw - k) / a0, 2 * ((A - 1) - (A + 1) * cw) / a0,
+                 ((A + 1) - (A - 1) * cw - k) / a0 };
+    }
+
     double fs = 48000.0;
-    float freq = -1, width = 1;
-    std::array<double, 5> c {};
+    float freq = -1, width = 1, sideMid = 1000, sideAir = 1000;
+    Coeffs c {}, midBell { 1, 0, 0, 0, 0 }, airShelf { 1, 0, 0, 0, 0 };
     std::array<State, 2> hp {};
+    State midState, airState;
+};
+
+// "Density": an upward shaping curve (own design, inflator-style). Quiet parts are
+// lifted by up to ~3.5 dB while full-scale peaks stay where they are, so the master
+// gets louder and denser without the limiter working harder.
+class DensityShaper
+{
+public:
+    void setParams (float amount_, float driveDb)
+    {
+        amount = juce::jlimit (0.0f, 1.0f, amount_);
+        drive = std::pow (10.0f, driveDb / 20.0f);
+    }
+
+    static float curve (float x)
+    {
+        const float a = std::abs (x);
+        if (a >= 1.0f)
+            return x; // above full scale: leave it to the limiter
+        const float y = 1.5f * a - 0.5f * a * a * a;
+        return x < 0 ? -y : y;
+    }
+
+    void process (float* const* data, int numChannels, int n) noexcept
+    {
+        if (amount <= 0.0f)
+            return;
+        const float inv = 1.0f / drive;
+        for (int ch = 0; ch < numChannels; ++ch)
+            for (int i = 0; i < n; ++i)
+            {
+                const float x = data[ch][i];
+                const float shaped = curve (x * drive) * inv;
+                data[ch][i] = x + amount * (shaped - x);
+            }
+    }
+
+private:
+    float amount = 0.5f, drive = 1.0f;
 };
 
 // Look-ahead limiter with true-peak detection (4x interpolated). The gain is the
@@ -237,23 +336,20 @@ public:
         look = std::max (8, (int) std::lround (fs * lookaheadMs * 0.001));
         delayLen = look + 1 + interpDelay;
         delay.assign ((size_t) maxChannels, std::vector<float> ((size_t) delayLen, 0.0f));
-        box.assign ((size_t) look, 1.0f);
-        dqVal.assign ((size_t) look + 8, 1.0f);
-        dqIdx.assign ((size_t) look + 8, 0);
-        dqHead = dqTail = 0;
-        boxSum = look;
-        boxPos = 0;
+        for (auto& gp : paths)
+            gp.prepare (look);
         pos = 0;
         t = 0;
-        released = 1.0f;
         interp.prepare (fs);
         gr.store (0.0f);
     }
 
     int latency() const { return delayLen; }
 
-    void setParams (float driveDb, float ceilingDb, float releaseMs)
+    // link: 1 = both channels get the same gain, 0 = fully independent.
+    void setParams (float driveDb, float ceilingDb, float releaseMs, float link_ = 0.7f)
     {
+        link = juce::jlimit (0.0f, 1.0f, link_);
         drive = std::pow (10.0f, driveDb / 20.0f);
         ceiling = std::pow (10.0f, ceilingDb / 20.0f);
         relCoeff = (float) (1.0 - std::exp (-1.0 / (std::max (10.0f, releaseMs) * 0.001 * fs)));
@@ -265,30 +361,20 @@ public:
         float minGain = 1.0f;
         for (int i = 0; i < n; ++i)
         {
-            float peak = 0;
+            float own[2] = { 1.0f, 1.0f };
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                const float x = data[ch][i] * (active ? drive : 1.0f);
-                peak = std::max (peak, interp.push (ch, x));
+                const float pk = interp.push (ch, data[ch][i] * (active ? drive : 1.0f));
+                own[ch] = pk > ceiling ? ceiling / pk : 1.0f;
             }
-            const float need = peak > ceiling ? ceiling / peak : 1.0f;
-
-            // Sliding minimum over the last look+1 samples (monotonic queue).
-            while (dqTail > dqHead && dqVal[(size_t) ((dqTail - 1) % (int) dqVal.size())] >= need)
-                --dqTail;
-            dqVal[(size_t) (dqTail % (int) dqVal.size())] = need;
-            dqIdx[(size_t) (dqTail % (int) dqIdx.size())] = t;
-            ++dqTail;
-            while (dqIdx[(size_t) (dqHead % (int) dqIdx.size())] <= t - (look + 3))
-                ++dqHead;
-            const float held = dqVal[(size_t) (dqHead % (int) dqVal.size())];
-
-            // Instant attack, smooth release, then the box filter.
-            released = held < released ? held : released + (held - released) * relCoeff;
-            boxSum += released - box[(size_t) boxPos];
-            box[(size_t) boxPos] = released;
-            boxPos = (boxPos + 1) % look;
-            const float g = (float) (boxSum / look);
+            const float linked = std::min (own[0], numChannels > 1 ? own[1] : own[0]);
+            float g[2];
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                const float need = linked + (1.0f - link) * (own[ch] - linked);
+                g[ch] = paths[(size_t) ch].push (need, t, look, relCoeff);
+                minGain = std::min (minGain, g[ch]);
+            }
             ++t;
 
             for (int ch = 0; ch < numChannels; ++ch)
@@ -298,13 +384,12 @@ public:
                 const float out = d[(size_t) pos];
                 d[(size_t) pos] = in;
                 // Safety clip catches the tiny rest the smooth gain can leave.
-                float y = active ? out * g : out;
+                float y = active ? out * g[ch] : out;
                 if (active)
                     y = juce::jlimit (-ceiling, ceiling, y);
                 data[ch][i] = y;
             }
             pos = (pos + 1) % delayLen;
-            minGain = std::min (minGain, g);
         }
         // Timing: the interpolator reports a peak about 6 samples late, so the audio is
         // delayed by look + 1 + 6 and the minimum window is slightly longer than look.
@@ -314,6 +399,47 @@ public:
     std::atomic<float> gr { 0.0f };
 
 private:
+    // Gain computer for one channel: sliding minimum over the look-ahead window
+    // (monotonic queue), instant attack / smooth release, then a box filter.
+    struct GainPath
+    {
+        std::vector<float> box, dqVal;
+        std::vector<int64_t> dqIdx;
+        int64_t dqHead = 0, dqTail = 0;
+        double boxSum = 0;
+        int boxPos = 0;
+        float released = 1.0f;
+
+        void prepare (int look)
+        {
+            box.assign ((size_t) look, 1.0f);
+            dqVal.assign ((size_t) look + 8, 1.0f);
+            dqIdx.assign ((size_t) look + 8, 0);
+            dqHead = dqTail = 0;
+            boxSum = look;
+            boxPos = 0;
+            released = 1.0f;
+        }
+
+        float push (float need, int64_t t, int look, float relCoeff) noexcept
+        {
+            const int qs = (int) dqVal.size();
+            while (dqTail > dqHead && dqVal[(size_t) ((dqTail - 1) % qs)] >= need)
+                --dqTail;
+            dqVal[(size_t) (dqTail % qs)] = need;
+            dqIdx[(size_t) (dqTail % qs)] = t;
+            ++dqTail;
+            while (dqIdx[(size_t) (dqHead % qs)] <= t - (look + 3))
+                ++dqHead;
+            const float held = dqVal[(size_t) (dqHead % qs)];
+            released = held < released ? held : released + (held - released) * relCoeff;
+            boxSum += released - box[(size_t) boxPos];
+            box[(size_t) boxPos] = released;
+            boxPos = (boxPos + 1) % look;
+            return (float) (boxSum / look);
+        }
+    };
+
     // 4x windowed-sinc interpolation, like the true-peak meter.
     struct Interp
     {
@@ -373,13 +499,10 @@ private:
     static constexpr int interpDelay = 6;
     int look = 72, delayLen = 79;
     std::vector<std::vector<float>> delay;
-    std::vector<float> box, dqVal;
-    std::vector<int64_t> dqIdx;
-    int64_t dqHead = 0, dqTail = 0, t = 0;
-    double boxSum = 72;
-    int boxPos = 0, pos = 0;
-    float released = 1.0f;
-    float drive = 1, ceiling = 0.891f, relCoeff = 0.001f;
+    std::array<GainPath, 2> paths;
+    int64_t t = 0;
+    int pos = 0;
+    float drive = 1, ceiling = 0.891f, relCoeff = 0.001f, link = 0.7f;
     Interp interp;
 };
 } // namespace mcheck

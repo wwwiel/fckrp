@@ -306,6 +306,18 @@ void addLoudnessHints (std::vector<Hint>& hints, const Measurements& m, const Se
     else
         hints.push_back ({ 0, u8 ("Dynamik ok"), u8 ("PLR ") + num (plr) + u8 (" dB (Rap meist 6–9, Pop 8–11).") });
 
+    // Fix chain: the limiter and compressor should barely be audible.
+    if (m.limGr > 3.0f)
+        hints.push_back ({ m.limGr > 5.0f ? 2 : 1, u8 ("Limiter arbeitet zu hart"),
+                           u8 ("Der Limiter drückt im Schnitt bis zu ") + num (m.limGr)
+                               + u8 (" dB. Profis bleiben bei max. 3 dB. Hol die Lautheit lieber vorher: ")
+                               + (m.densityOn ? u8 ("DICHTE etwas höher und ") : u8 ("DICHTE anschalten (ca. 40 %) und "))
+                               + u8 ("den Kompressor 1–2 dB arbeiten lassen, dann Limiter-Gain zurück.") });
+    if (m.compGr > 3.0f)
+        hints.push_back ({ 1, u8 ("Kompressor zu stark"),
+                           u8 ("Der Kompressor reduziert im Schnitt bis zu ") + num (m.compGr)
+                               + u8 (" dB. Auf dem Master reichen 1–2 dB, man soll ihn nicht hören. Threshold etwas hoch.") });
+
     if (m.measuredSeconds >= 20.0f)
     {
         if (m.lra > 9.0f)

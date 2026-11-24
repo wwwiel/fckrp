@@ -54,12 +54,13 @@ private:
 
     CheckProcessor& processor;
     std::function<void (const juce::String&)> notify;
-    juce::ToggleButton fixToggle, eqToggle, compToggle, stereoToggle, limToggle;
+    juce::ToggleButton fixToggle, eqToggle, compToggle, densToggle, stereoToggle, limToggle;
     std::array<Knob, mcheck::numEqBands> eqKnobs;
-    Knob thresh, ratio, attack, release, makeup, monoBelow, width, limGain, ceiling, limRelease;
+    Knob thresh, ratio, attack, release, makeup, peak, densAmount, densDrive, monoBelow, width, sideMid, sideAir,
+        limGain, ceiling, limRelease, limLink;
     juce::TextButton autoEqButton, eqZeroButton, autoLoudButton;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
-    juce::Rectangle<int> eqArea, compArea, stereoArea, limArea;
+    juce::Rectangle<int> eqArea, compArea, densArea, stereoArea, limArea;
     float compGr = 0, limGr = 0;
 };
 

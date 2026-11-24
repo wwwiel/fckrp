@@ -22,13 +22,19 @@ Stereo, True-Peak-Limiter). Solange alle Module aus sind, bleibt der Sound unver
 
 - **EQ**: 7 breite Bänder (Sub, Bass, U-Mitte, Mitte, Präsenz, Höhen, Air), passend zu den Tipps.
   „Auto-EQ“ korrigiert ca. 60 % der gemessenen Abweichung, nochmal abspielen und wieder drücken verfeinert.
-- **Kompressor**: sanfter Glue-Kompressor (Standard 2:1, 30 ms / 200 ms).
-- **Stereo**: „Mono unter“ macht Bass/808 mono, „Breite“ für die Stereobreite.
-- **Limiter**: True-Peak-Limiter mit Look-ahead (1,5 ms), Ceiling -1 dB. „Auto-LUFS“ stellt den
-  Gain so ein, dass dein Ziel erreicht wird.
+- **Kompressor**: sanfter Glue-Kompressor (2:1, 30 ms / 200 ms), Peak/RMS-Mix. Ziel: nur 1–2 dB.
+- **Dichte**: Upward-Prozessor (Inflator-Prinzip): holt leise Details hoch, Peaks bleiben, macht laut
+  ohne dass der Limiter mehr drücken muss.
+- **Stereo / Side**: „Mono <“ macht Bass/808 mono, „Breite“, Side-Glocke Mitten (2,5 kHz) und Side-Air (10 kHz).
+- **Limiter**: True-Peak-Limiter mit Look-ahead (1,5 ms), Ceiling -1 dB, Link (Standard 70 %).
+  „Auto-LUFS“ stellt den Gain so ein, dass dein Ziel erreicht wird. Er sollte max. 3 dB reduzieren,
+  sonst warnt das Plugin.
 - „Fix aktiv“ aus = Vergleich ohne die Kette.
 
 Die Analyse misst immer das, was aus dem Plugin rauskommt.
+
+Die Arbeitsweise (Limiter max. 3 dB, unhörbarer Kompressor, Upward-Processing, Side-EQ) folgt den
+Tipps aus Sage Audios Video „The Only Music Mastering Video You'll Ever Need“.
 
 ## So benutzt du es
 

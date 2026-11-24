@@ -27,6 +27,13 @@ inline constexpr const char* limOn = "limOn";
 inline constexpr const char* limGain = "limGain";
 inline constexpr const char* limCeiling = "limCeiling";
 inline constexpr const char* limRelease = "limRelease";
+inline constexpr const char* limLink = "limLink";
+inline constexpr const char* compPeak = "compPeak";
+inline constexpr const char* densOn = "densOn";
+inline constexpr const char* densAmount = "densAmount";
+inline constexpr const char* densDrive = "densDrive";
+inline constexpr const char* sideMid = "sideMid";
+inline constexpr const char* sideAir = "sideAir";
 inline juce::String eqBand (int b) { return "eq" + juce::String (b); }
 } // namespace mcheck::ids
 
@@ -94,6 +101,7 @@ public:
     mcheck::MasterEq eq;
     mcheck::GlueCompressor comp;
     mcheck::StereoTool stereo;
+    mcheck::DensityShaper density;
     mcheck::TruePeakLimiter limiter;
 
 private:
@@ -105,6 +113,8 @@ private:
     std::atomic<bool> resetRequested { false }, spectrumResetRequested { false }, learning { false };
     std::atomic<bool> loadingReference { false };
     bool wasPlaying = false, prepared = false;
+    float compGrSmooth = 0, limGrSmooth = 0;
+    std::atomic<float> compGrSong { 0.0f }, limGrSong { 0.0f };
     double currentRate = 48000.0;
 
     juce::CriticalSection settingsLock;

@@ -45,6 +45,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout CheckProcessor::createLayout
                                                        AudioParameterFloatAttributes().withStringFromValueFunction (
                                                            [] (float v, int) { return String ((int) std::lround (v * 100)) + " %"; })));
 
+    auto pct = [] (float v, int) { return String ((int) std::lround (v * 100)) + " %"; };
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::compPeak, 1 }, "Komp Peak-Anteil",
+                                                       NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.2f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ids::densOn, 1 }, "Dichte an", false));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::densAmount, 1 }, "Dichte",
+                                                       NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.4f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::densDrive, 1 }, "Dichte Drive",
+                                                       NormalisableRange<float> (-6.0f, 6.0f, 0.1f), 0.0f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::sideMid, 1 }, "Side Mitten",
+                                                       NormalisableRange<float> (-6.0f, 6.0f, 0.1f), 0.0f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::sideAir, 1 }, "Side Air",
+                                                       NormalisableRange<float> (-6.0f, 6.0f, 0.1f), 0.0f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::limLink, 1 }, "Limiter Link",
+                                                       NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.7f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ids::stereoOn, 1 }, "Stereo an", false));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ids::monoBelow, 1 }, "Mono unter",
                                                        NormalisableRange<float> (0.0f, 300.0f, 1.0f), 120.0f,
@@ -116,6 +139,8 @@ void CheckProcessor::doReset()
     loudness.reset();
     truePeak.reset();
     spectrum.reset();
+    compGrSong.store (0.0f);
+    limGrSong.store (0.0f);
 }
 
 float CheckProcessor::getParam (const juce::String& id) const { return params.getRawParameterValue (id)->load(); }
@@ -166,19 +191,39 @@ void CheckProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     if (fix && getParam (ids::compOn) > 0.5f)
     {
         comp.setParams (getParam (ids::compThresh), getParam (ids::compRatio), getParam (ids::compAttack),
-                        getParam (ids::compRelease), getParam (ids::compMakeup), getParam (ids::compMix));
+                        getParam (ids::compRelease), getParam (ids::compMakeup), getParam (ids::compMix),
+                        getParam (ids::compPeak));
         comp.process (channels, numCh, n);
     }
     else
         comp.gr.store (0.0f);
+    if (fix && getParam (ids::densOn) > 0.5f)
+    {
+        density.setParams (getParam (ids::densAmount), getParam (ids::densDrive));
+        density.process (channels, numCh, n);
+    }
     if (fix && getParam (ids::stereoOn) > 0.5f)
     {
         stereo.setParams (getParam (ids::monoBelow), getParam (ids::width));
+        stereo.setSideEq (getParam (ids::sideMid), getParam (ids::sideAir));
         stereo.process (channels, numCh, n);
     }
     const bool lim = fix && getParam (ids::limOn) > 0.5f;
-    limiter.setParams (getParam (ids::limGain), getParam (ids::limCeiling), getParam (ids::limRelease));
+    limiter.setParams (getParam (ids::limGain), getParam (ids::limCeiling), getParam (ids::limRelease),
+                       getParam (ids::limLink));
     limiter.process (channels, numCh, n, lim);
+
+    // Typical gain reduction (3 s average), the highest value of the song, for the advice.
+    const float a = std::exp (-(float) n / (3.0f * (float) currentRate));
+    compGrSmooth = compGrSmooth * a + comp.gr.load() * (1.0f - a);
+    limGrSmooth = limGrSmooth * a + limiter.gr.load() * (1.0f - a);
+    if (loudness.momentary.load() > -50.0f)
+    {
+        if (compGrSmooth > compGrSong.load())
+            compGrSong.store (compGrSmooth);
+        if (limGrSmooth > limGrSong.load())
+            limGrSong.store (limGrSmooth);
+    }
 
     // Analysis of what leaves the plugin.
     const float* out[2] = { channels[0], channels[1] };
@@ -202,6 +247,9 @@ mcheck::Measurements CheckProcessor::getMeasurements()
     m.clips = truePeak.clips.load();
     m.correlation = spectrum.correlationLong.load();
     m.monoDropDb = spectrum.monoDropDb.load();
+    m.compGr = compGrSong.load();
+    m.limGr = limGrSong.load();
+    m.densityOn = getParam (ids::fixOn) > 0.5f && getParam (ids::densOn) > 0.5f;
     spectrum.getSnapshot (m.spectrum);
     return m;
 }
@@ -361,12 +409,22 @@ juce::String CheckProcessor::applyAutoLoudness()
     const auto t = targetFor (getSettings());
     const bool limActive = getParam (ids::limOn) > 0.5f && getParam (ids::fixOn) > 0.5f;
     const float gainNow = limActive ? getParam (ids::limGain) : 0.0f;
-    const float newGain = juce::jlimit (0.0f, 24.0f, gainNow + (t.lufs - m.integrated));
+    float newGain = juce::jlimit (0.0f, 24.0f, gainNow + (t.lufs - m.integrated));
+    juce::String extra;
+    // A lot of limiter gain sounds squashed: let the density stage carry part of it.
+    const bool densActive = getParam (ids::densOn) > 0.5f && getParam (ids::fixOn) > 0.5f;
+    if (newGain > 6.0f && ! densActive)
+    {
+        setParam (ids::densAmount, 0.4f);
+        setParam (ids::densOn, 1.0f);
+        newGain = std::max (0.0f, newGain - 1.5f);
+        extra = u8 (" DICHTE auf 40 % angeschaltet, damit der Limiter weniger drücken muss.");
+    }
     setParam (ids::limGain, newGain);
     setParam (ids::limOn, 1.0f);
     setParam (ids::fixOn, 1.0f);
     requestReset();
-    return u8 ("Limiter-Gain auf ") + num (newGain) + u8 (" dB. Spiel den Song nochmal von vorne zum Prüfen.");
+    return u8 ("Limiter-Gain auf ") + num (newGain) + u8 (" dB.") + extra + u8 (" Spiel den Song nochmal von vorne zum Prüfen.");
 }
 
 void CheckProcessor::getStateInformation (juce::MemoryBlock& dest)
