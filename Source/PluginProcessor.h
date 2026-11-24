@@ -6,6 +6,7 @@
 #include "dsp/ResonanceTamer.h"
 #include "dsp/Gate.h"
 #include "dsp/OptoCompressor.h"
+#include "dsp/PunchLimiter.h"
 #include "dsp/TubeSaturation.h"
 #include "dsp/VocalDelay.h"
 #include "dsp/VocalEq.h"
@@ -47,6 +48,7 @@ public:
     std::atomic<float> compGainReductionDb { 0.0f };
     std::atomic<float> deEssGainReductionDb { 0.0f };
     std::atomic<float> tameCutDb { 0.0f };
+    std::atomic<float> punchGainReductionDb { 0.0f };
     std::atomic<float> inputLevelDb { -100.0f };
     std::atomic<float> outputLevelDb { -100.0f };
 
@@ -89,7 +91,8 @@ private:
     fckrp::TubeSaturation saturation;
     fckrp::VocalDelay delay;
     fckrp::VocalReverb reverb;
-    juce::SmoothedValue<float> outputGain { 1.0f };
+    juce::SmoothedValue<float> outputGain { 1.0f }, inputGain { 1.0f };
+    fckrp::PunchLimiter punch;
 
     int currentProgram = 0;
     bool isPrepared = false;

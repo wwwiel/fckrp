@@ -52,12 +52,18 @@ inline constexpr const char* dblOn       = "dbl_on";
 inline constexpr const char* dblAmount   = "dbl_amount";
 inline constexpr const char* dblDetune   = "dbl_detune";
 inline constexpr const char* width       = "width";
+inline constexpr const char* input       = "input";
+inline constexpr const char* eqBody      = "eq_body";
+inline constexpr const char* punchOn     = "punch_on";
+inline constexpr const char* punchAmount = "punch_amount";
+inline constexpr const char* dsLate      = "ds_late";
 
 inline constexpr const char* all[] = {
     polish, space, output, gateOn, gateThresh, eqOn, eqLowCut, eqMud, eqPresence, eqAir,
     dsOn, dsFreq, dsThresh, compOn, compThresh, compRatio, compAttack, compRelease, compMakeup,
     satOn, satDrive, satChar, dlyOn, dlyTime, dlyFeedback, dlyMix, revOn, revSize, revDamp, revMix,
-    compMix, tameOn, tameDepth, tameSens, dblOn, dblAmount, dblDetune, width
+    compMix, tameOn, tameDepth, tameSens, dblOn, dblAmount, dblDetune, width,
+    input, eqBody, punchOn, punchAmount, dsLate
 };
 } // namespace fckrp::ids
 

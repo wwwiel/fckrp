@@ -4,7 +4,7 @@
 
 namespace fckrp
 {
-// Four-band vocal EQ: low cut, "mud" bell around 300 Hz,
+// Five-band vocal EQ: low cut, "body" bell at 120 Hz, "mud" bell around 300 Hz,
 // presence bell around 3.5 kHz and an air shelf at 10 kHz.
 class VocalEq
 {
@@ -19,10 +19,10 @@ public:
             for (auto& f : c.bands)
                 f.coefficients = new juce::dsp::IIR::Coefficients<float> (1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
         }
-        lastLowCut = lastMud = lastPresence = lastAir = -1000.0f;
+        lastLowCut = lastMud = lastPresence = lastAir = lastBody = -1000.0f;
     }
 
-    void setParameters (float lowCutHz, float mudDb, float presenceDb, float airDb)
+    void setParameters (float lowCutHz, float mudDb, float presenceDb, float airDb, float bodyDb = 0.0f)
     {
         using AC = juce::dsp::IIR::ArrayCoefficients<float>;
         const float nyq = (float) fs * 0.45f;
@@ -44,6 +44,13 @@ public:
             const auto c = AC::makePeakFilter (fs, std::min (3500.0f, nyq), 0.8f, dbToGain (presenceDb));
             for (auto& ch : channels) *ch.bands[2].coefficients = c;
             lastPresence = presenceDb;
+        }
+        if (! juce::exactlyEqual (bodyDb, lastBody))
+        {
+            // Chest and weight of the voice, below the "mud" area.
+            const auto c = AC::makePeakFilter (fs, 120.0f, 0.8f, dbToGain (bodyDb));
+            for (auto& ch : channels) *ch.bands[4].coefficients = c;
+            lastBody = bodyDb;
         }
         if (! juce::exactlyEqual (airDb, lastAir))
         {
@@ -73,11 +80,11 @@ public:
 private:
     struct Channel
     {
-        std::array<juce::dsp::IIR::Filter<float>, 4> bands;
+        std::array<juce::dsp::IIR::Filter<float>, 5> bands;
     };
 
     double fs = 44100.0;
     std::vector<Channel> channels;
-    float lastLowCut = -1000.0f, lastMud = -1000.0f, lastPresence = -1000.0f, lastAir = -1000.0f;
+    float lastLowCut = -1000.0f, lastMud = -1000.0f, lastPresence = -1000.0f, lastAir = -1000.0f, lastBody = -1000.0f;
 };
 } // namespace fckrp

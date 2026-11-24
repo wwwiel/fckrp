@@ -57,6 +57,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addFloat (gateThresh, "Gate Threshold", { -80.0f, -20.0f, 0.1f }, -60.0f, "dB");
 
     addFloat (width, "Width", { 0.0f, 2.0f }, 1.0f, "");
+    addFloat (input, "Input", { -12.0f, 24.0f, 0.1f }, 0.0f, "dB");
+    addFloat (eqBody, "Body", { -6.0f, 9.0f, 0.1f }, 0.0f, "dB");
+    addBool (punchOn, "Punch On", false);
+    addBool (dsLate, "De-Ess Late", false);
+    addFloat (punchAmount, "Punch", { 0.0f, 1.0f }, 0.4f, "");
 
     addBool (eqOn, "EQ On", true);
     addFloat (eqLowCut, "Low Cut", skewed (20.0f, 400.0f, 100.0f), 80.0f, "Hz");
@@ -252,8 +257,10 @@ void FckrpProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     delay.prepare (sampleRate, numCh);
     reverb.prepare (sampleRate, samplesPerBlock);
     outputGain.reset (sampleRate, 0.05);
+    inputGain.reset (sampleRate, 0.05);
+    punch.prepare (sampleRate, numCh);
 
-    setLatencySamples ((int) std::round (saturation.getLatencySamples()));
+    setLatencySamples ((int) std::round (saturation.getLatencySamples()) + punch.getLatencySamples());
     isPrepared = true;
 }
 
@@ -351,6 +358,11 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     const float pol = get (polish);
     const float spc = get (space);
 
+    // Input trim: brings quiet or hot recordings to the level the
+    // thresholds below are made for.
+    inputGain.setTargetValue (fckrp::dbToGain (get (input)));
+    inputGain.applyGain (buffer, buffer.getNumSamples());
+
     if (isOn (gateOn))
     {
         gate.setThreshold (get (gateThresh));
@@ -362,7 +374,8 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     {
         eq.setParameters (get (eqLowCut), get (eqMud),
                           get (eqPresence) + 3.0f * pol,
-                          get (eqAir) + 3.0f * pol);
+                          get (eqAir) + 3.0f * pol,
+                          get (eqBody));
         eq.process (buffer);
     }
     markStage (stEq, buffer);
@@ -376,14 +389,23 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     tameCutDb.store (tameCut);
     markStage (stTame, buffer);
 
+    // The de-esser normally sits before the compressor. "Late" moves it
+    // after compressor and tube, where it also catches the S sounds that
+    // heavy compression pulls back up.
+    const bool deEssLate = isOn (dsLate);
     float dsGr = 0.0f;
-    if (isOn (dsOn))
+    auto runDeEsser = [&]
     {
-        deEsser.setParameters (get (dsFreq), get (dsThresh) - 4.0f * pol);
-        dsGr = deEsser.process (buffer);
-    }
-    deEssGainReductionDb.store (dsGr);
-    markStage (stDeEss, buffer);
+        if (isOn (dsOn))
+        {
+            deEsser.setParameters (get (dsFreq), get (dsThresh) - 4.0f * pol);
+            dsGr = deEsser.process (buffer);
+        }
+        deEssGainReductionDb.store (dsGr);
+        markStage (stDeEss, buffer);
+    };
+    if (! deEssLate)
+        runDeEsser();
 
     float compGr = 0.0f;
     if (isOn (compOn))
@@ -417,6 +439,12 @@ void FckrpProcessor::processChunk (juce::AudioBuffer<float>& buffer)
     saturation.setCharacter (get (satChar));
     saturation.process (buffer, isOn (satOn));
     markStage (stTube, buffer);
+
+    if (deEssLate)
+        runDeEsser();
+
+    punch.setAmount (get (punchAmount), isOn (punchOn));
+    punchGainReductionDb.store (punch.process (buffer));
 
     if (isOn (dblOn))
     {

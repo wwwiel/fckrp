@@ -80,19 +80,21 @@ FckrpEditor::FckrpEditor (FckrpProcessor& p)
     spaceKnob = makeKnob (space, "SPACE", true);
     outputKnob = makeKnob (output, "OUTPUT");
     widthKnob = makeKnob (width, "WIDTH");
+    inputKnob = makeKnob (input, "INPUT");
 
     addSection ("GATE", gateOn, { { gateThresh, "Threshold" } });
-    addSection ("EQ", eqOn, { { eqLowCut, "Low Cut" }, { eqMud, "Mud" }, { eqPresence, "Presence" }, { eqAir, "Air" } });
+    addSection ("EQ", eqOn, { { eqLowCut, "Low Cut" }, { eqBody, "Body" }, { eqMud, "Mud" }, { eqPresence, "Presence" }, { eqAir, "Air" } });
     addSection ("TAME", tameOn, { { tameDepth, "Depth" }, { tameSens, "Sensitivity" } });
     addSection ("DE-ESS", dsOn, { { dsFreq, "Freq" }, { dsThresh, "Threshold" } });
     addSection ("OPTO", compOn, { { compThresh, "Threshold" }, { compRatio, "Ratio" }, { compAttack, "Attack" },
                                   { compRelease, "Release" }, { compMakeup, "Gain" }, { compMix, "Mix" } });
     addSection ("TUBE", satOn, { { satDrive, "Drive" }, { satChar, "Character" } });
+    addSection ("PUNCH", punchOn, { { punchAmount, "Amount" } });
     addSection ("DOUBLER", dblOn, { { dblAmount, "Amount" }, { dblDetune, "Detune" } });
     addSection ("DELAY", dlyOn, { { dlyTime, "Time" }, { dlyFeedback, "Feedback" }, { dlyMix, "Mix" } });
     addSection ("HALL", revOn, { { revSize, "Size" }, { revDamp, "Damping" }, { revMix, "Mix" } });
 
-    setSize (1100, 780);
+    setSize (1180, 780);
     startTimerHz (30);
 }
 
@@ -216,6 +218,10 @@ void FckrpEditor::resized()
     auto widthArea = macroRow.removeFromLeft (120);
     widthKnob->label.setBounds (widthArea.removeFromTop (20));
     widthKnob->slider.setBounds (widthArea.reduced (10, 10));
+
+    auto inputArea = macroRow.removeFromLeft (120);
+    inputKnob->label.setBounds (inputArea.removeFromTop (20));
+    inputKnob->slider.setBounds (inputArea.reduced (10, 10));
 
     auto outArea = macroRow.removeFromRight (140);
     outMeterArea = outArea.removeFromRight (12).withTrimmedTop (10).withTrimmedBottom (18);

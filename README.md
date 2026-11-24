@@ -15,6 +15,7 @@ Das Signal läuft in dieser Reihenfolge durch die Module. Jedes Modul lässt sic
 | **Tame** | Dynamischer Resonanz-Zähmer: acht schmale Bänder zwischen 1,2 und 9 kHz. Ein Band, das deutlich lauter ist als seine Nachbarn (eine schrille, „klingelnde“ Frequenz), wird nur in diesem Moment abgesenkt. Regler: Depth (bis 12 dB), Sensitivity. Standardmäßig aus. |
 | **De-Ess** | Macht scharfe S- und Zischlaute leiser, nur im Höhenbereich. |
 | **Opto** | Eigener optischer Röhrenkompressor: sehr weiche Kennlinie, zweistufiges Release (schneller Anteil plus langsamer Ausklang) und „Gedächtnis“, das nach langer Kompression langsamer loslässt. Regler: Threshold, Ratio, Attack, Release, Gain und **Mix** für Parallel-Kompression (100 % = voll komprimiert, weniger = Original wird beigemischt). |
+| **Punch** | Schneller Limiter am Ende der Stimme: macht sie dichter und lauter, Spitzen bleiben bei -1 dBFS. Regler: Amount. Standardmäßig aus. |
 | **Tube** | Röhrensättigung mit 2-fach-Oversampling. Regler: Drive und **Character** (0 % = weich und sauber, 100 % = heiß und kräftig, mit mehr warmen Obertönen; Standard 100 %). |
 | **Doubler** | Zwei zusätzliche „Takes“ aus kurzen, leicht schwankenden Verzögerungen (ca. 14 und 21 ms, bis etwa ±10 Cent verstimmt), links und rechts verteilt. Monosicher: in Mono klingt die Stimme genau wie ohne Doubler. Regler: Amount, Detune. Standardmäßig aus. |
 | **Delay** | Echo, das zum trockenen Signal dazugemischt wird. Die Wiederholungen sind gefiltert, damit sie hinter der Stimme bleiben. |
@@ -25,7 +26,9 @@ Das Signal läuft in dieser Reihenfolge durch die Module. Jedes Modul lässt sic
 - **Space** gibt mehr Delay, Hall und Stereobreite dazu.
 - **Width** regelt die Stereobreite (0 % = mono, 100 % = unverändert, 200 % = doppelt so breit). Was man in Mono hört, bleibt dabei unverändert.
 
-**Presets:** Init, Clean Pop, Rap Upfront, Airy R&B, Lo-Fi Warm, Big Hook, Natural Leveler.
+**Weitere Regler:** **Input** (oben links) passt leise oder laute Aufnahmen an, **Body** im EQ gibt der Stimme Brust und Gewicht (120 Hz).
+
+**Presets:** Init, Clean Pop, Rap Upfront, Airy R&B, Lo-Fi Warm, Big Hook, Natural Leveler, Lukas Lead, Lukas Second (auf Lukas' Stimme eingemessen).
 
 ## In FL Studio installieren
 

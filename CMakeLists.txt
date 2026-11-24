@@ -109,6 +109,13 @@ if(FCKRP_BUILD_LOADCHECK)
 endif()
 
 if(FCKRP_BUILD_TESTS)
+    # Offline render of a WAV file through a preset (for tuning presets).
+    juce_add_console_app(fckrp_render PRODUCT_NAME "fckrp_render")
+    target_sources(fckrp_render PRIVATE Tests/Render.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Presets.cpp)
+    target_include_directories(fckrp_render PRIVATE Source)
+    target_compile_definitions(fckrp_render PRIVATE JucePlugin_Name="fckrp" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(fckrp_render PRIVATE juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
+
     juce_add_console_app(fckrp_fuzz PRODUCT_NAME "fckrp_fuzz")
     target_sources(fckrp_fuzz PRIVATE Tests/Fuzz.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Presets.cpp)
     target_include_directories(fckrp_fuzz PRIVATE Source)
