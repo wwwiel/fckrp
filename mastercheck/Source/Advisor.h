@@ -20,7 +20,7 @@ struct LoudnessTarget
     float lufs;
     float tolerance;
 };
-constexpr int numTargets = 3;
+constexpr int numTargets = 4; // the last one follows the loaded reference
 extern const std::array<LoudnessTarget, numTargets> loudnessTargets;
 
 constexpr int numCurves = 3; // Rap/Trap, Pop/R&B, own reference
@@ -40,6 +40,7 @@ struct Measurements
 struct Reference
 {
     bool valid = false;
+    juce::String name;
     std::array<float, numBands> bands {}; // dB, any offset
     float lufs = -200, plr = 0;
 };
@@ -77,6 +78,12 @@ std::array<float, numBands> bandPowers (const std::vector<float>& bins, double s
 BandAnalysis analyseBands (const SpectrumSnapshot&, const Settings&);
 std::vector<Resonance> findResonances (const SpectrumSnapshot&);
 float bassSideToMidDb (const SpectrumSnapshot&, float maxFreq = 120.0f);
+
+LoudnessTarget targetFor (const Settings&);
+
+// Average deviation per advice region (same order as the fix EQ bands); 0 if unknown.
+constexpr int numRegions = 7;
+std::array<float, numRegions> regionDeviations (const BandAnalysis&, double sampleRate);
 
 std::vector<Hint> makeHints (const Measurements&, const Settings&);
 int overallLevel (const std::vector<Hint>&);

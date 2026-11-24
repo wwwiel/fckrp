@@ -1,7 +1,8 @@
 # fckrp check – Master-Analyzer
 
-Kommt in FL Studio in den **letzten Slot vom Master**. Lässt den Sound komplett unverändert
-und misst nur. Zeigt dir, ob dein Master für Spotify passt und was du ändern solltest.
+Kommt in FL Studio in den **letzten Slot vom Master**. Misst, ob dein Master für Spotify passt,
+sagt dir was du ändern solltest und hat eine eigene Master-Kette zum Fixen (EQ, Kompressor,
+Stereo, True-Peak-Limiter). Solange alle Module aus sind, bleibt der Sound unverändert.
 
 ![fckrp check](docs/mastercheck_ui.png)
 
@@ -17,6 +18,18 @@ und misst nur. Zeigt dir, ob dein Master für Spotify passt und was du ändern s
 - **Spitzen/Resonanzen**: schmale Peaks, die klingeln oder pfeifen
 - **Stereo**: Korrelation, Pegelverlust in Mono, ob der Bass unter 120 Hz mono ist
 
+## Master-Fix
+
+- **EQ**: 7 breite Bänder (Sub, Bass, U-Mitte, Mitte, Präsenz, Höhen, Air), passend zu den Tipps.
+  „Auto-EQ“ korrigiert ca. 60 % der gemessenen Abweichung, nochmal abspielen und wieder drücken verfeinert.
+- **Kompressor**: sanfter Glue-Kompressor (Standard 2:1, 30 ms / 200 ms).
+- **Stereo**: „Mono unter“ macht Bass/808 mono, „Breite“ für die Stereobreite.
+- **Limiter**: True-Peak-Limiter mit Look-ahead (1,5 ms), Ceiling -1 dB. „Auto-LUFS“ stellt den
+  Gain so ein, dass dein Ziel erreicht wird.
+- „Fix aktiv“ aus = Vergleich ohne die Kette.
+
+Die Analyse misst immer das, was aus dem Plugin rauskommt.
+
 ## So benutzt du es
 
 1. Plugin in den letzten Slot vom Master (nach dem Limiter).
@@ -25,9 +38,9 @@ und misst nur. Zeigt dir, ob dein Master für Spotify passt und was du ändern s
 4. Unten stehen die Tipps: Rot = fixen, Gelb = prüfen, Grün = passt.
 5. Am Limiter/EQ drehen, nochmal abspielen, bis oben „Spotify-ready“ steht.
 
-**Eigene Referenz:** „Referenz lernen“ drücken, einen fertigen Song, den du magst, über den
-Master abspielen, dann „Fertig: Referenz speichern“. Danach vergleicht das Plugin deinen
-Song mit genau diesem Klang und dieser Lautheit.
+**Eigene Referenz:** Einen fertigen Song aus deinem Genre (WAV, MP3, AIFF, FLAC, M4A) einfach auf das
+Plugin ziehen oder „Referenz laden …“ klicken. Danach vergleicht das Plugin deinen Song mit genau
+diesem Klang; mit Ziel „Wie Referenz“ auch mit seiner Lautheit.
 
 Auf dem Master ist alles schon zusammengemischt: das Plugin kann Beat und Vocal nicht
 getrennt hören. Es sagt dir, welcher Frequenzbereich das Problem ist und was dort meistens

@@ -116,19 +116,27 @@ static void testPassThrough()
     std::mt19937 rng (1);
     std::uniform_real_distribution<float> d (-1.0f, 1.0f);
     juce::MidiBuffer midi;
-    bool same = true;
+    // With all fix modules off (default) the audio only gets the reported latency.
+    const int lat = p.getLatencySamples();
+    std::vector<float> inL, inR, outL, outR;
     for (int n : { 256, 3000, 1, 77, 16384 })
     {
-        juce::AudioBuffer<float> b (2, n), copy;
+        juce::AudioBuffer<float> b (2, n);
         for (int ch = 0; ch < 2; ++ch)
             for (int i = 0; i < n; ++i)
                 b.setSample (ch, i, d (rng));
-        copy.makeCopyOf (b);
+        inL.insert (inL.end(), b.getReadPointer (0), b.getReadPointer (0) + n);
+        inR.insert (inR.end(), b.getReadPointer (1), b.getReadPointer (1) + n);
         p.processBlock (b, midi);
-        for (int ch = 0; ch < 2; ++ch)
-            same = same && std::memcmp (b.getReadPointer (ch), copy.getReadPointer (ch), sizeof (float) * (size_t) n) == 0;
+        outL.insert (outL.end(), b.getReadPointer (0), b.getReadPointer (0) + n);
+        outR.insert (outR.end(), b.getReadPointer (1), b.getReadPointer (1) + n);
     }
-    check (same, "audio passes through bit for bit");
+    bool same = lat > 0 && lat < 200;
+    for (size_t i = 0; i + (size_t) lat < outL.size(); ++i)
+        same = same && outL[i + (size_t) lat] == inL[i] && outR[i + (size_t) lat] == inR[i];
+    for (int i = 0; i < lat; ++i)
+        same = same && outL[(size_t) i] == 0.0f;
+    check (same, "modules off: audio passes bit for bit, only delayed by the reported latency", lat);
 
     juce::AudioBuffer<float> bad (2, 512);
     bad.clear();
@@ -281,6 +289,123 @@ static void testStereoAndLoudnessHints()
     check (hasHint (hq, "Lauter als dein Ziel"), "too loud for -14 target is flagged");
 }
 
+static void setP (CheckProcessor& p, const juce::String& id, float v)
+{
+    auto* prm = p.params.getParameter (id);
+    prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+}
+
+static void testLimiter()
+{
+    // Loud shaped noise pushed 8 dB into the limiter: true peak must stay at the ceiling.
+    auto mid = ShapedNoise::make (builtInCurves[0], [] (double) { return 0.0f; }, 0.0, 5);
+    scaleTo (mid, -12.0f);
+    CheckProcessor p;
+    p.prepareToPlay (fs, 512);
+    setP (p, ids::limOn, 1.0f);
+    setP (p, ids::limGain, 8.0f);
+    setP (p, ids::limCeiling, -1.0f);
+    const int n = (int) mid.size();
+    feed (p, 10.0, [&] (int i, float& l, float& r) { l = r = mid[(size_t) (i % n)]; });
+    const auto m = p.getMeasurements();
+    check (m.maxTruePeakDb <= -0.9f, "limiter keeps true peak at the -1 dBTP ceiling", m.maxTruePeakDb);
+    check (m.integrated > -9.0f, "limiter makes it louder", m.integrated);
+
+    // Sine bursts: check the limiter doesn't distort a clean tone much (THD-like check on level).
+    CheckProcessor q;
+    q.prepareToPlay (fs, 512);
+    setP (q, ids::limOn, 1.0f);
+    setP (q, ids::limGain, 3.0f);
+    feed (q, 3.0, sine (100.0, -3.0));
+    const auto mq = q.getMeasurements();
+    check (mq.maxTruePeakDb <= -0.9f && mq.maxTruePeakDb > -1.5f, "sine is held right at the ceiling", mq.maxTruePeakDb);
+}
+
+static void testAutoLoudness()
+{
+    auto mid = ShapedNoise::make (builtInCurves[0], [] (double) { return 0.0f; }, 0.0, 7);
+    scaleTo (mid, -20.0f);
+    const int n = (int) mid.size();
+    CheckProcessor p;
+    p.prepareToPlay (fs, 512);
+    p.setTarget (1); // -9 LUFS
+    auto play = [&] { feed (p, 21.0, [&] (int i, float& l, float& r) { l = r = mid[(size_t) (i % n)]; }); };
+    play();
+    p.applyAutoLoudness();
+    p.processBlock (*std::make_unique<juce::AudioBuffer<float>> (2, 16), *std::make_unique<juce::MidiBuffer>());
+    play();
+    p.applyAutoLoudness();
+    p.processBlock (*std::make_unique<juce::AudioBuffer<float>> (2, 16), *std::make_unique<juce::MidiBuffer>());
+    play();
+    const auto m = p.getMeasurements();
+    check (std::abs (m.integrated + 9.0f) < 1.0f, "Auto-Lautheit reaches the -9 LUFS target", m.integrated);
+    check (m.maxTruePeakDb <= -0.9f, "and true peak stays under -1 dBTP", m.maxTruePeakDb);
+}
+
+static void testAutoEq()
+{
+    CheckProcessor p;
+    runNoise ([] (double f) { return (f > 2000.0 && f < 5000.0) ? 5.0f : 0.0f; }, 0, false, &p);
+    const float before = regionDeviations (analyseBands (p.getMeasurements().spectrum, p.getSettings()), fs)[4];
+    p.applyAutoEq();
+    const float gain = p.params.getRawParameterValue (ids::eqBand (4))->load();
+    check (gain < -1.5f && gain > -6.01f, "Auto-EQ turns PRÄSENZ down", gain);
+    runNoise ([] (double f) { return (f > 2000.0 && f < 5000.0) ? 5.0f : 0.0f; }, 0, false, &p);
+    const float after = regionDeviations (analyseBands (p.getMeasurements().spectrum, p.getSettings()), fs)[4];
+    check (after < before - 1.5f, "after Auto-EQ the presence region is closer to the curve", after);
+}
+
+static void testStereoTool()
+{
+    CheckProcessor p;
+    p.prepareToPlay (fs, 512);
+    setP (p, ids::stereoOn, 1.0f);
+    setP (p, ids::monoBelow, 120.0f);
+    // 50 Hz only on the left: after the tool, both sides carry it equally.
+    feed (p, 6.0, [] (int i, float& l, float& r)
+    {
+        l = 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 50.0 * i / fs);
+        r = 0.0f;
+    });
+    const float bass = bassSideToMidDb (p.getMeasurements().spectrum);
+    check (bass < -20.0f, "Mono unter 120 Hz makes the bass mono", bass);
+}
+
+static void testReferenceFile()
+{
+    // Write shaped noise (Pop curve) to a WAV, load it as reference.
+    auto mid = ShapedNoise::make (builtInCurves[1], [] (double) { return 0.0f; }, 0.0, 9);
+    scaleTo (mid, -11.0f);
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mcheck_ref_test.wav");
+    file.deleteFile();
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (file), fs, 2, 24, {}, 0));
+        juce::AudioBuffer<float> b (2, (int) mid.size());
+        for (int i = 0; i < (int) mid.size(); ++i)
+            b.setSample (0, i, mid[(size_t) i]), b.setSample (1, i, mid[(size_t) i]);
+        w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+    }
+    CheckProcessor p;
+    const auto err = p.analyseReferenceFile (file);
+    const auto s = p.getSettings();
+    check (err.isEmpty() && s.reference.valid && s.curve == 2 && s.reference.name == "mcheck_ref_test",
+           "dropped WAV becomes the reference");
+    // Mid noise ~ -11 dB RMS; just check it's a plausible loud value.
+    check (s.reference.lufs > -16.0f && s.reference.lufs < -6.0f, "reference loudness measured", s.reference.lufs);
+    p.setTarget (3);
+    check (std::abs (targetFor (p.getSettings()).lufs - s.reference.lufs) < 0.01f, "target 'Wie Referenz' uses its LUFS");
+
+    // Same material measured against it: no EQ advice.
+    auto h = runNoise ([] (double) { return 0.0f; }, 1, false, &p);
+    p.setCurve (2);
+    h = makeHints (p.getMeasurements(), p.getSettings());
+    check (hasHint (h, "Klangbalance passt"), "song matching the dropped reference gets no EQ advice");
+    file.deleteFile();
+
+    check (p.analyseReferenceFile (juce::File ("/nonexistent.wav")).isNotEmpty(), "bad file gives an error, no crash");
+}
+
 static void testState()
 {
     CheckProcessor p;
@@ -314,6 +439,9 @@ static void testEditor()
 {
     CheckProcessor p;
     auto hints = runNoise ([] (double f) { return (f > 2000.0 && f < 5000.0) ? 4.0f : 0.0f; }, 0, true, &p);
+    setP (p, ids::eqOn, 1.0f);
+    setP (p, ids::eqBand (4), -2.0f);
+    setP (p, ids::limOn, 1.0f);
     std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
     if (auto* ce = dynamic_cast<CheckEditor*> (ed.get()))
         ce->refresh();
@@ -336,6 +464,11 @@ int main (int argc, char** argv)
     testPassThrough();
     testAdvice();
     testStereoAndLoudnessHints();
+    testLimiter();
+    testAutoLoudness();
+    testAutoEq();
+    testStereoTool();
+    testReferenceFile();
     testState();
     if (withEditor)
         testEditor();

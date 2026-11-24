@@ -13,7 +13,20 @@ const std::array<LoudnessTarget, numTargets> loudnessTargets { {
     { "Spotify (-14 LUFS)", -14.0f, 1.0f },
     { "Rap laut (-9 LUFS)", -9.0f, 1.5f },
     { "Maximal laut (-7 LUFS)", -7.0f, 1.5f },
+    { "Wie Referenz", -14.0f, 1.0f },
 } };
+
+LoudnessTarget targetFor (const Settings& s)
+{
+    const int i = std::clamp (s.target, 0, numTargets - 1);
+    if (i == numTargets - 1)
+    {
+        if (s.reference.valid && s.reference.lufs > -60.0f)
+            return { "Wie Referenz", s.reference.lufs, 1.0f };
+        return loudnessTargets[0];
+    }
+    return loudnessTargets[(size_t) i];
+}
 
 const std::array<const char*, numCurves> curveNames { "Kurve: Rap / Trap", "Kurve: Pop / R&B", "Kurve: Eigene Referenz" };
 
@@ -208,22 +221,23 @@ struct Region
     const char* tooQuiet;
     const char* sources;  // what usually lives there
     bool shelf;           // suggest a shelf instead of a bell
+    const char* band;     // matching band of the fix EQ
 };
 
 const Region regions[] = {
-    { 20, 60, "Sub (20–60 Hz)", "dröhnt, frisst Headroom und Lautheit", "wenig Fundament", "808 / Sub-Bass", true },
-    { 60, 250, "Bass (60–250 Hz)", "dick und matschig", "dünn, kein Druck", "Kick, 808, Bass", false },
-    { 250, 500, "Untere Mitten (250–500 Hz)", "mulmig, boxy", "hohl, dünn", "Vocal-Körper, Snare, Keys", false },
-    { 500, 2000, "Mitten (500 Hz–2 kHz)", "nasal, blechern", "hohl, weit weg", "Vocal, Melodie, Snare", false },
+    { 20, 60, "Sub (20–60 Hz)", "dröhnt, frisst Headroom und Lautheit", "wenig Fundament", "808 / Sub-Bass", true, "SUB" },
+    { 60, 250, "Bass (60–250 Hz)", "dick und matschig", "dünn, kein Druck", "Kick, 808, Bass", false, "BASS" },
+    { 250, 500, "Untere Mitten (250–500 Hz)", "mulmig, boxy", "hohl, dünn", "Vocal-Körper, Snare, Keys", false, "U-MITTE" },
+    { 500, 2000, "Mitten (500 Hz–2 kHz)", "nasal, blechern", "hohl, weit weg", "Vocal, Melodie, Snare", false, "MITTE" },
     { 2000, 5000, "Präsenz (2–5 kHz)", "hart, aggressiv, nervt bei Lautstärke", "Vocal undeutlich, geht unter",
-      "Vocal, Snare, Leads", false },
-    { 5000, 10000, "Höhen (5–10 kHz)", "scharf, zischelig (S-Laute, Hi-Hats)", "dumpf", "S-Laute, Hi-Hats, Becken", false },
-    { 10000, 17000, "Air (10–16 kHz)", "spitz, zu hell", "wenig Glanz", "Hi-Hats, Vocal-Air", true },
+      "Vocal, Snare, Leads", false, "PRÄSENZ" },
+    { 5000, 10000, "Höhen (5–10 kHz)", "scharf, zischelig (S-Laute, Hi-Hats)", "dumpf", "S-Laute, Hi-Hats, Becken", false, "HÖHEN" },
+    { 10000, 17000, "Air (10–16 kHz)", "spitz, zu hell", "wenig Glanz", "Hi-Hats, Vocal-Air", true, "AIR" },
 };
 
 void addLoudnessHints (std::vector<Hint>& hints, const Measurements& m, const Settings& s)
 {
-    const auto& t = loudnessTargets[(size_t) std::clamp (s.target, 0, numTargets - 1)];
+    const auto t = targetFor (s);
     const float i = m.integrated;
     const float diff = i - t.lufs;
     const juce::String early = m.measuredSeconds < 30.0f ? u8 (" (Erst ") + num (m.measuredSeconds, 0)
@@ -234,20 +248,20 @@ void addLoudnessHints (std::vector<Hint>& hints, const Measurements& m, const Se
 
     if (diff > t.tolerance)
         hints.push_back ({ diff > 3.0f ? 2 : 1, u8 ("Lauter als dein Ziel"),
-                           u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 0)
-                               + u8 (". Nimm am Limiter ca. ") + num (diff) + u8 (" dB Gain zurück. Lauter bringt auf Spotify nichts, es wird eh runtergedreht – du verlierst nur Punch.")
+                           u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 1)
+                               + u8 (". Nimm am Limiter ca. ") + num (diff) + u8 (" dB Gain zurück (oder unten „Auto-LUFS“). Lauter bringt auf Spotify nichts, es wird eh runtergedreht – du verlierst nur Punch.")
                                + early });
     else if (diff < -t.tolerance)
     {
-        juce::String txt = u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 0)
-                           + u8 (". Gib am Limiter ca. ") + num (-diff) + u8 (" dB mehr Gain rein (Ceiling bleibt bei -1 dB).");
+        juce::String txt = u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 1)
+                           + u8 (". Gib am Limiter ca. ") + num (-diff) + u8 (" dB mehr Gain rein (Ceiling bleibt bei -1 dB) – oder unten „Auto-LUFS“ drücken.");
         if (plr < 7.0f)
             txt << u8 (" Achtung: Die Dynamik ist schon knapp. Hol die Lautheit lieber über einen sanften Bus-Kompressor (2:1, 2–3 dB) als nur über den Limiter.");
         hints.push_back ({ 1, u8 ("Leiser als dein Ziel"), txt + early });
     }
     else
         hints.push_back ({ 0, u8 ("Lautheit passt"),
-                           u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 0) + "." + early });
+                           u8 ("Integriert ") + num (i) + u8 (" LUFS, Ziel ") + num (t.lufs, 1) + "." + early });
 
     if (i > -14.0f)
         hints.push_back ({ 0, u8 ("So macht es Spotify"),
@@ -343,7 +357,8 @@ void addSpectrumHints (std::vector<Hint>& hints, const Measurements& m, const Se
                            + (customCurve ? u8 ("deiner Referenz") : u8 ("der Kurve")) + u8 (". Tipp: ")
                            + (loud ? u8 ("EQ") + where + u8 (" um ca. -") + num (std::max (0.5, amount)) + " dB absenken."
                                    : u8 ("EQ") + where + u8 (" um ca. +") + num (std::max (0.5, amount)) + u8 (" dB anheben – oder dort weniger wegnehmen."))
-                           + u8 (" Meist: ") + u8 (r.sources) + u8 (" – am besten direkt in der Spur fixen.");
+                           + u8 (" Meist: ") + u8 (r.sources) + u8 (". Am besten in der Spur fixen, sonst unten im Fix-EQ (Band ") + u8 (r.band)
+                           + u8 (") oder „Auto-EQ“.");
         hints.push_back ({ std::abs (dev) > t + 2.0 ? 2 : 1, u8 (r.name), txt });
     }
     if (! anyBand)
@@ -389,7 +404,7 @@ void addStereoHints (std::vector<Hint>& hints, const Measurements& m)
     {
         hints.push_back ({ bass > -6.0f ? 2 : 1, u8 ("Bass ist stereo"),
                            u8 ("Unter 120 Hz ist der Side-Anteil nur ") + num (-bass, 0)
-                               + u8 (" dB unter der Mitte. Mach Bass und 808 mono (Stereo-Imager unter 120 Hz auf mono), sonst verliert der Master Druck und Lautheit.") });
+                               + u8 (" dB unter der Mitte. Mach Bass und 808 mono (unten STEREO an, „Mono unter“ 120 Hz), sonst verliert der Master Druck und Lautheit.") });
         problem = true;
     }
     if (! problem)
@@ -397,6 +412,29 @@ void addStereoHints (std::vector<Hint>& hints, const Measurements& m)
                            u8 ("Korrelation ") + num (c, 2) + u8 (", Mono ") + num (mono) + u8 (" dB, Bass mono genug.") });
 }
 } // namespace
+
+std::array<float, numRegions> regionDeviations (const BandAnalysis& a, double sampleRate)
+{
+    std::array<float, numRegions> out {};
+    if (! a.valid)
+        return out;
+    for (int r = 0; r < numRegions; ++r)
+    {
+        double sum = 0;
+        int n = 0;
+        for (int b = 0; b < numBands; ++b)
+        {
+            const float f = bandCentres[(size_t) b];
+            if (f >= regions[r].lo && f < regions[r].hi && f <= sampleRate * 0.45)
+            {
+                sum += a.deviation[(size_t) b];
+                ++n;
+            }
+        }
+        out[(size_t) r] = n > 0 ? (float) (sum / n) : 0.0f;
+    }
+    return out;
+}
 
 std::vector<Hint> makeHints (const Measurements& m, const Settings& s)
 {

@@ -7,7 +7,7 @@ namespace col = mcheck::colours;
 
 namespace
 {
-constexpr int editorWidth = 1120, editorHeight = 790;
+constexpr int editorWidth = 1120, editorHeight = 850;
 
 juce::Font font (float size, bool bold = false)
 {
@@ -66,7 +66,178 @@ void HintsView::paint (juce::Graphics& g)
 
 // ---------------------------------------------------------------------------------------------
 
-CheckEditor::CheckEditor (CheckProcessor& p) : AudioProcessorEditor (&p), processor (p)
+FixPanel::FixPanel (CheckProcessor& p, std::function<void (const juce::String&)> n)
+    : processor (p), notify (std::move (n))
+{
+    using namespace mcheck::ids;
+    setupToggle (fixToggle, fixOn, u8 ("Fix aktiv (aus = Vergleich ohne)"));
+    setupToggle (eqToggle, eqOn, "");
+    setupToggle (compToggle, compOn, "");
+    setupToggle (stereoToggle, stereoOn, "");
+    setupToggle (limToggle, limOn, "");
+
+    for (int b = 0; b < numEqBands; ++b)
+        setupKnob (eqKnobs[(size_t) b], eqBand (b), u8 (eqNames[(size_t) b]), true);
+    setupKnob (thresh, compThresh, "THRESH", false);
+    setupKnob (ratio, compRatio, "RATIO", false);
+    setupKnob (attack, compAttack, "ATTACK", false);
+    setupKnob (release, compRelease, "RELEASE", false);
+    setupKnob (makeup, compMakeup, "MAKEUP", false);
+    setupKnob (monoBelow, mcheck::ids::monoBelow, "MONO UNTER", false);
+    setupKnob (width, mcheck::ids::width, "BREITE", false);
+    setupKnob (limGain, mcheck::ids::limGain, "GAIN", false);
+    setupKnob (ceiling, limCeiling, "CEILING", false);
+    setupKnob (limRelease, mcheck::ids::limRelease, "RELEASE", false);
+
+    autoEqButton.setButtonText ("Auto-EQ");
+    autoEqButton.setTooltip (u8 ("Stellt den EQ nach der Analyse ein (ca. 60 % der Abweichung)"));
+    autoEqButton.onClick = [this] { notify (processor.applyAutoEq()); };
+    addAndMakeVisible (autoEqButton);
+
+    eqZeroButton.setButtonText ("0");
+    eqZeroButton.setTooltip (u8 ("Alle EQ-Bänder auf 0 dB"));
+    eqZeroButton.onClick = [this]
+    {
+        for (int b = 0; b < numEqBands; ++b)
+            eqKnobs[(size_t) b].slider.setValue (0.0, juce::sendNotificationSync);
+    };
+    addAndMakeVisible (eqZeroButton);
+
+    autoLoudButton.setButtonText ("Auto-LUFS");
+    autoLoudButton.setTooltip (u8 ("Stellt den Limiter-Gain so ein, dass dein Ziel-LUFS erreicht wird"));
+    autoLoudButton.onClick = [this] { notify (processor.applyAutoLoudness()); };
+    addAndMakeVisible (autoLoudButton);
+}
+
+void FixPanel::setupKnob (Knob& k, const juce::String& id, const juce::String& label, bool vertical)
+{
+    k.label = label;
+    k.slider.setSliderStyle (vertical ? juce::Slider::LinearVertical : juce::Slider::RotaryHorizontalVerticalDrag);
+    k.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 16);
+    k.slider.setColour (juce::Slider::textBoxTextColourId, col::text);
+    k.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    k.slider.setColour (juce::Slider::rotarySliderFillColourId, col::accent);
+    k.slider.setColour (juce::Slider::rotarySliderOutlineColourId, col::dim.withAlpha (0.35f));
+    k.slider.setColour (juce::Slider::thumbColourId, col::text);
+    k.slider.setColour (juce::Slider::trackColourId, col::accent);
+    k.slider.setColour (juce::Slider::backgroundColourId, col::dim.withAlpha (0.3f));
+    k.slider.setDoubleClickReturnValue (true, (double) processor.params.getParameterRange (id).convertFrom0to1 (
+                                                  processor.params.getParameter (id)->getDefaultValue()));
+    addAndMakeVisible (k.slider);
+    k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.params, id, k.slider);
+}
+
+void FixPanel::setupToggle (juce::ToggleButton& b, const juce::String& id, const juce::String& text)
+{
+    b.setButtonText (text);
+    addAndMakeVisible (b);
+    buttonAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.params, id, b));
+}
+
+void FixPanel::placeKnobs (juce::Rectangle<int> area, std::initializer_list<Knob*> knobs)
+{
+    const int w = area.getWidth() / (int) knobs.size();
+    for (auto* k : knobs)
+        k->slider.setBounds (area.removeFromLeft (w).withTrimmedTop (16).reduced (2, 0));
+}
+
+void FixPanel::resized()
+{
+    auto r = getLocalBounds().reduced (12, 0);
+    auto top = r.removeFromTop (30).reduced (0, 4);
+    fixToggle.setBounds (top.removeFromRight (280));
+
+    const int gap = 14;
+    eqArea = r.removeFromLeft (370);
+    r.removeFromLeft (gap);
+    compArea = r.removeFromLeft (310);
+    r.removeFromLeft (gap);
+    stereoArea = r.removeFromLeft (140);
+    r.removeFromLeft (gap);
+    limArea = r;
+
+    auto title = [] (juce::Rectangle<int> a) { return a.removeFromTop (26); };
+    {
+        auto t = title (eqArea);
+        eqToggle.setBounds (t.removeFromLeft (24));
+        eqZeroButton.setBounds (t.removeFromRight (30).reduced (0, 2));
+        t.removeFromRight (6);
+        autoEqButton.setBounds (t.removeFromRight (90).reduced (0, 2));
+    }
+    compToggle.setBounds (title (compArea).removeFromLeft (24));
+    stereoToggle.setBounds (title (stereoArea).removeFromLeft (24));
+    {
+        auto t = title (limArea);
+        limToggle.setBounds (t.removeFromLeft (24));
+        autoLoudButton.setBounds (t.removeFromRight (92).reduced (0, 2));
+    }
+
+    auto content = [] (juce::Rectangle<int> a) { return a.withTrimmedTop (28).withTrimmedBottom (8); };
+    {
+        auto a = content (eqArea);
+        const int w = a.getWidth() / numEqBands;
+        for (auto& k : eqKnobs)
+            k.slider.setBounds (a.removeFromLeft (w).withTrimmedTop (16).reduced (4, 0));
+    }
+    placeKnobs (content (compArea), { &thresh, &ratio, &attack, &release, &makeup });
+    placeKnobs (content (stereoArea), { &monoBelow, &width });
+    placeKnobs (content (limArea), { &limGain, &ceiling, &limRelease });
+}
+
+void FixPanel::updateMeters()
+{
+    compGr = processor.comp.gr.load();
+    limGr = std::max (processor.limiter.gr.load(), limGr * 0.85f);
+}
+
+void FixPanel::paint (juce::Graphics& g)
+{
+    g.setColour (col::panel);
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
+    g.setColour (col::text);
+    g.setFont (font (15.0f, true));
+    g.drawText (u8 ("MASTER-FIX"), 14, 6, 200, 20, juce::Justification::centredLeft);
+    g.setColour (col::dim);
+    g.setFont (font (12.0f));
+    g.drawText (u8 ("Reihenfolge: EQ → Komp → Stereo → Limiter. Die Analyse oben misst das Ergebnis."), 130, 6, 560, 20,
+                juce::Justification::centredLeft);
+
+    auto section = [&] (juce::Rectangle<int> a, const juce::String& name, const juce::String& extra)
+    {
+        g.setColour (col::background.withAlpha (0.45f));
+        g.fillRoundedRectangle (a.toFloat(), 6.0f);
+        g.setColour (col::text);
+        g.setFont (font (13.0f, true));
+        g.drawText (name, a.getX() + 26, a.getY() + 4, 90, 18, juce::Justification::centredLeft);
+        if (extra.isNotEmpty())
+        {
+            g.setColour (col::accent);
+            g.setFont (font (12.0f, true));
+            g.drawText (extra, a.getX() + 26 + 96, a.getY() + 4, 110, 18, juce::Justification::centredLeft);
+        }
+    };
+    section (eqArea, "EQ", {});
+    section (compArea, "KOMPRESSOR", compGr > 0.05f ? u8 ("GR -") + num (compGr) + " dB" : juce::String());
+    section (stereoArea, "STEREO", {});
+    section (limArea, "LIMITER", limGr > 0.05f ? u8 ("GR -") + num (limGr) + " dB" : juce::String());
+
+    g.setColour (col::dim);
+    g.setFont (font (10.5f, true));
+    auto label = [&] (const Knob& k)
+    {
+        const auto b = k.slider.getBounds();
+        g.drawText (k.label, b.getX() - 6, b.getY() - 15, b.getWidth() + 12, 14, juce::Justification::centred);
+    };
+    for (auto& k : eqKnobs)
+        label (k);
+    for (auto* k : { &thresh, &ratio, &attack, &release, &makeup, &monoBelow, &width, &limGain, &ceiling, &limRelease })
+        label (*k);
+}
+
+// ---------------------------------------------------------------------------------------------
+
+CheckEditor::CheckEditor (CheckProcessor& p)
+    : AudioProcessorEditor (&p), processor (p), fixPanel (p, [this] (const juce::String& m) { showMessage (m); })
 {
     lnf.setColour (juce::ComboBox::backgroundColourId, col::panel);
     lnf.setColour (juce::ComboBox::outlineColourId, col::dim.withAlpha (0.4f));
@@ -87,6 +258,7 @@ CheckEditor::CheckEditor (CheckProcessor& p) : AudioProcessorEditor (&p), proces
 
     for (int i = 0; i < numTargets; ++i)
         targetBox.addItem (u8 ("Ziel: ") + u8 (loudnessTargets[(size_t) i].name), i + 1);
+    addAndMakeVisible (fixPanel);
     targetBox.onChange = [this] { processor.setTarget (targetBox.getSelectedId() - 1); refresh(); };
     addAndMakeVisible (targetBox);
 
@@ -100,14 +272,19 @@ CheckEditor::CheckEditor (CheckProcessor& p) : AudioProcessorEditor (&p), proces
     resetButton.onClick = [this] { processor.requestReset(); };
     addAndMakeVisible (resetButton);
 
-    learnButton.setClickingTogglesState (false);
+    learnButton.setButtonText (u8 ("Referenz laden …"));
+    learnButton.setTooltip (u8 ("Song auswählen oder einfach eine Audiodatei auf das Plugin ziehen"));
     learnButton.onClick = [this]
     {
-        if (processor.isLearning())
-            processor.finishLearning();
-        else
-            processor.startLearning();
-        refresh();
+        chooser = std::make_unique<juce::FileChooser> (u8 ("Referenz-Song wählen"), juce::File(),
+                                                       "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a;*.ogg");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this] (const juce::FileChooser& fc)
+                              {
+                                  const auto f = fc.getResult();
+                                  if (f.existsAsFile())
+                                      processor.loadReferenceFile (f);
+                              });
     };
     addAndMakeVisible (learnButton);
 
@@ -142,13 +319,15 @@ void CheckEditor::resized()
     header.removeFromRight (8);
     targetBox.setBounds (header.removeFromRight (std::max (150, header.getWidth())));
 
-    auto top = r.removeFromTop (400);
+    auto top = r.removeFromTop (360);
     tilesArea = top.removeFromLeft (290);
     top.removeFromLeft (14);
-    historyArea = top.removeFromTop (130);
+    historyArea = top.removeFromTop (110);
     top.removeFromTop (12);
     spectrumArea = top;
 
+    r.removeFromTop (12);
+    fixPanel.setBounds (r.removeFromTop (200));
     r.removeFromTop (12);
     auto hintsArea = r.removeFromTop (r.getHeight() - 14);
     hintsViewport.setBounds (hintsArea.withTrimmedTop (30).reduced (2));
@@ -194,8 +373,9 @@ void CheckEditor::refresh()
         }
     }
 
-    learnButton.setButtonText (processor.isLearning() ? u8 ("Fertig: Referenz speichern") : u8 ("Referenz lernen"));
-    learnButton.setToggleState (processor.isLearning(), juce::dontSendNotification);
+    learnButton.setEnabled (! processor.isLoadingReference());
+    fixPanel.updateMeters();
+    fixPanel.repaint();
     targetBox.setSelectedId (settings.target + 1, juce::dontSendNotification);
     curveBox.setItemEnabled (3, settings.reference.valid);
     curveBox.setSelectedId (settings.curve + 1, juce::dontSendNotification);
@@ -225,9 +405,9 @@ void CheckEditor::paint (juce::Graphics& g)
 
     juce::String status;
     juce::Colour sc;
-    if (processor.isLearning())
+    if (processor.isLoadingReference())
     {
-        status = u8 ("Lerne Referenz – spiel jetzt den Referenz-Track");
+        status = u8 ("Analysiere Referenz …");
         sc = col::cool;
     }
     else if (meas.measuredSeconds < 3.0f)
@@ -259,15 +439,37 @@ void CheckEditor::paint (juce::Graphics& g)
     g.setColour (col::text);
     g.setFont (font (15.0f, true));
     g.drawText (u8 ("WAS DU TUN SOLLTEST"), hr.getX() + 14, hr.getY() + 6, 300, 22, juce::Justification::centredLeft);
-    g.setColour (col::dim);
-    g.setFont (font (12.0f));
-    g.drawText (u8 ("Rot = fixen · Gelb = prüfen · Grün = passt"), hr.getRight() - 330, hr.getY() + 6, 316, 22,
-                juce::Justification::centredRight);
+    juce::String note = u8 ("Rot = fixen · Gelb = prüfen · Grün = passt · Referenz: Song aufs Plugin ziehen");
+    auto noteColour = col::dim;
+    const auto refStatus = processor.getReferenceStatus();
+    if (juce::Time::getMillisecondCounter() < toastUntil)
+    {
+        note = toast;
+        noteColour = col::cool;
+    }
+    else if (refStatus.isNotEmpty())
+    {
+        note = refStatus;
+        noteColour = processor.isLoadingReference() ? col::cool : col::warn;
+    }
+    g.setColour (noteColour);
+    g.setFont (font (12.5f, noteColour != col::dim));
+    g.drawText (note, hr.getX() + 230, hr.getY() + 6, hr.getWidth() - 244, 22, juce::Justification::centredRight);
+
+    if (dragging)
+    {
+        g.setColour (col::background.withAlpha (0.85f));
+        g.fillRect (getLocalBounds());
+        g.setColour (col::accent);
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (20.0f), 12.0f, 3.0f);
+        g.setFont (font (28.0f, true));
+        g.drawText (u8 ("Loslassen = Song als Referenz nehmen"), getLocalBounds(), juce::Justification::centred);
+    }
 }
 
 void CheckEditor::drawTiles (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    const auto& t = loudnessTargets[(size_t) juce::jlimit (0, numTargets - 1, settings.target)];
+    const auto t = targetFor (settings);
     const bool have = meas.measuredSeconds >= 3.0f && meas.integrated > -69.0f;
     const float tp = meas.maxTruePeakDb;
     const float plr = tp - meas.integrated;
@@ -279,7 +481,7 @@ void CheckEditor::drawTiles (juce::Graphics& g, juce::Rectangle<int> area)
         g.fillRoundedRectangle (r.toFloat(), 8.0f);
         g.setColour (c);
         g.fillRoundedRectangle (r.toFloat().removeFromLeft (4.0f).reduced (0.0f, 8.0f), 2.0f);
-        auto in = r.reduced (14, 8);
+        auto in = r.reduced (14, r.getHeight() < 80 ? 5 : 8);
         g.setColour (col::dim);
         g.setFont (font (11.5f, true));
         g.drawText (label, in.removeFromTop (16), juce::Justification::centredLeft);
@@ -301,46 +503,46 @@ void CheckEditor::drawTiles (juce::Graphics& g, juce::Rectangle<int> area)
     const int iLevel = ! have ? -1 : (std::abs (diff) <= t.tolerance ? 0 : (std::abs (diff) <= 3.0f ? 1 : 2));
     auto levelColour = [] (int l) { return l < 0 ? col::dim : col::forLevel (l); };
 
-    auto big = area.removeFromTop (110);
+    auto big = area.removeFromTop (96);
     tile (big, u8 ("INTEGRIERT (GANZER SONG)"), lufsText (have ? meas.integrated : -200.0f), "LUFS",
           levelColour (iLevel), 40.0f,
-          have ? u8 ("Ziel ") + num (t.lufs, 0) + u8 (" · Abweichung ") + signedNum (diff) + " dB"
+          have ? u8 ("Ziel ") + num (t.lufs, 1) + u8 (" · Abweichung ") + signedNum (diff) + " dB"
                      + u8 (" · ") + num (meas.measuredSeconds, 0) + " s"
-               : u8 ("Ziel ") + num (t.lufs, 0) + u8 (" LUFS · spiel den Song ab"));
+               : u8 ("Ziel ") + num (t.lufs, 1) + u8 (" LUFS · spiel den Song ab"));
     area.removeFromTop (10);
 
-    const int w = (area.getWidth() - 10) / 2, h = (area.getHeight() - 30) / 4;
+    const int w = (area.getWidth() - 10) / 2, h = (area.getHeight() - 24) / 4;
     auto cell = [&] (int c, int row)
-    { return juce::Rectangle<int> (area.getX() + c * (w + 10), area.getY() + row * (h + 10), w, h); };
+    { return juce::Rectangle<int> (area.getX() + c * (w + 10), area.getY() + row * (h + 8), w, h); };
 
-    tile (cell (0, 0), "SHORT-TERM (3 s)", lufsText (meas.shortTerm), "LUFS", col::dim, 24.0f,
+    tile (cell (0, 0), "SHORT-TERM (3 s)", lufsText (meas.shortTerm), "LUFS", col::dim, 21.0f,
           meas.maxShortTerm > -69.0f ? u8 ("max ") + num (meas.maxShortTerm) : juce::String());
-    tile (cell (1, 0), "MOMENTARY", lufsText (meas.momentary), "LUFS", col::dim, 24.0f, {});
+    tile (cell (1, 0), "MOMENTARY", lufsText (meas.momentary), "LUFS", col::dim, 21.0f, {});
 
     const int tpLevel = ! have ? -1 : (tp > -1.0f ? 2 : ((tp > -2.0f && meas.integrated > -14.0f) ? 1 : 0));
     tile (cell (0, 1), "TRUE PEAK MAX", tp < -100.0f ? juce::String ("--") : signedNum (tp), "dBTP",
-          levelColour (tpLevel), 24.0f,
+          levelColour (tpLevel), 21.0f,
           meas.overs > 0 ? juce::String (meas.overs) + u8 (" × über -1 dB") : u8 ("Ziel ≤ -1,0"));
     const bool loudTarget = t.lufs > -12.0f;
     const int plrLevel = ! have ? -1 : (plr < 5.0f ? 2 : (plr < 6.5f || (plr > 13.0f && loudTarget) ? 1 : 0));
-    tile (cell (1, 1), u8 ("PLR (DYNAMIK)"), have ? num (plr) : juce::String ("--"), "dB", levelColour (plrLevel), 24.0f,
+    tile (cell (1, 1), u8 ("PLR (DYNAMIK)"), have ? num (plr) : juce::String ("--"), "dB", levelColour (plrLevel), 21.0f,
           u8 ("Rap gut: 6–9"));
 
     const int lraLevel = meas.measuredSeconds < 20.0f ? -1 : (meas.lra > 9.0f ? 1 : 0);
     tile (cell (0, 2), "LRA", meas.measuredSeconds >= 20.0f ? num (meas.lra) : juce::String ("--"), "LU",
-          levelColour (lraLevel), 24.0f, u8 ("Schwankung"));
+          levelColour (lraLevel), 21.0f, u8 ("Schwankung"));
     tile (cell (1, 2), "SAMPLE PEAK", meas.maxSamplePeakDb < -100.0f ? juce::String ("--") : signedNum (meas.maxSamplePeakDb),
-          "dBFS", meas.clips > 0 ? col::bad : col::dim, 24.0f,
+          "dBFS", meas.clips > 0 ? col::bad : col::dim, 21.0f,
           meas.clips > 0 ? juce::String (meas.clips) + " Clips" : juce::String());
 
     const bool st = meas.spectrum.frames >= 20;
     const float c = meas.correlation;
     const int cLevel = ! st ? -1 : (c < 0.0f ? 2 : (c < 0.3f ? 1 : 0));
-    tile (cell (0, 3), "KORRELATION", st ? num (c, 2) : juce::String ("--"), "", levelColour (cLevel), 24.0f,
+    tile (cell (0, 3), "KORRELATION", st ? num (c, 2) : juce::String ("--"), "", levelColour (cLevel), 21.0f,
           u8 ("live ") + num (processor.spectrum.correlationFast.load(), 2));
     const int mLevel = ! st ? -1 : (meas.monoDropDb < -5.0f ? 2 : (meas.monoDropDb < -3.0f ? 1 : 0));
     tile (cell (1, 3), "MONO-CHECK", st ? signedNum (meas.monoDropDb) : juce::String ("--"), "dB", levelColour (mLevel),
-          24.0f, u8 ("Pegel in Mono"));
+          21.0f, u8 ("Pegel in Mono"));
 }
 
 void CheckEditor::drawHistory (juce::Graphics& g, juce::Rectangle<int> area)
@@ -365,7 +567,7 @@ void CheckEditor::drawHistory (juce::Graphics& g, juce::Rectangle<int> area)
         g.drawText (num (l, 0), (int) r.getX() - 36, (int) y (l) - 7, 30, 14, juce::Justification::centredRight);
     }
 
-    const auto& t = loudnessTargets[(size_t) juce::jlimit (0, numTargets - 1, settings.target)];
+    const auto t = targetFor (settings);
     g.setColour (col::good.withAlpha (0.12f));
     g.fillRect (juce::Rectangle<float>::leftTopRightBottom (r.getX(), y (t.lufs + t.tolerance), r.getRight(),
                                                             y (t.lufs - t.tolerance)));
@@ -414,9 +616,10 @@ void CheckEditor::drawSpectrum (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (col::dim);
     g.setFont (font (11.5f, true));
     const bool custom = settings.curve == 2 && settings.reference.valid;
-    g.drawText (u8 ("KLANGBALANCE: DEIN SONG (ORANGE) GEGEN ") + (custom ? u8 ("DEINE REFERENZ") : u8 ("ZIELKURVE"))
+    g.drawText (u8 ("KLANGBALANCE: DEIN SONG (ORANGE) GEGEN ")
+                    + (custom ? u8 ("REFERENZ „") + settings.reference.name + u8 ("“") : u8 ("ZIELKURVE"))
                     + u8 (" (WEISS)"),
-                area.getX() + 14, area.getY() + 6, 600, 16, juce::Justification::centredLeft);
+                area.getX() + 14, area.getY() + 6, area.getWidth() - 28, 16, juce::Justification::centredLeft);
 
     const auto r = area.toFloat().reduced (40.0f, 10.0f).withTrimmedBottom (30.0f).withTrimmedTop (16.0f);
     // Target curve with tolerance (before measuring: the raw curve shape)
@@ -556,4 +759,37 @@ void CheckEditor::drawSpectrum (juce::Graphics& g, juce::Rectangle<int> area)
         g.setFont (font (11.0f, true));
         g.drawFittedText (label, juce::Rectangle<float> (x0, ly, x1 - x0, 16.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
     }
+}
+
+bool CheckEditor::isAudioFile (const juce::String& path)
+{
+    const auto ext = juce::File (path).getFileExtension().toLowerCase();
+    return ext == ".wav" || ext == ".aif" || ext == ".aiff" || ext == ".flac" || ext == ".mp3" || ext == ".m4a" || ext == ".ogg";
+}
+
+bool CheckEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (auto& f : files)
+        if (isAudioFile (f))
+            return true;
+    return false;
+}
+
+void CheckEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    dragging = false;
+    for (auto& f : files)
+        if (isAudioFile (f))
+        {
+            processor.loadReferenceFile (juce::File (f));
+            break;
+        }
+    repaint();
+}
+
+void CheckEditor::showMessage (const juce::String& m)
+{
+    toast = m;
+    toastUntil = juce::Time::getMillisecondCounter() + 6000;
+    repaint();
 }

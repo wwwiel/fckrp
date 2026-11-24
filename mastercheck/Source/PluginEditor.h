@@ -32,7 +32,38 @@ private:
 };
 } // namespace mcheck
 
-class CheckEditor : public juce::AudioProcessorEditor, private juce::Timer
+// The master fix chain controls: EQ, compressor, stereo, limiter.
+class FixPanel : public juce::Component
+{
+public:
+    FixPanel (CheckProcessor&, std::function<void (const juce::String&)> notify);
+    void resized() override;
+    void paint (juce::Graphics&) override;
+    void updateMeters();
+
+private:
+    struct Knob
+    {
+        juce::Slider slider;
+        juce::String label;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+    };
+    void setupKnob (Knob&, const juce::String& paramId, const juce::String& label, bool vertical);
+    void setupToggle (juce::ToggleButton&, const juce::String& paramId, const juce::String& text);
+    void placeKnobs (juce::Rectangle<int> area, std::initializer_list<Knob*> knobs);
+
+    CheckProcessor& processor;
+    std::function<void (const juce::String&)> notify;
+    juce::ToggleButton fixToggle, eqToggle, compToggle, stereoToggle, limToggle;
+    std::array<Knob, mcheck::numEqBands> eqKnobs;
+    Knob thresh, ratio, attack, release, makeup, monoBelow, width, limGain, ceiling, limRelease;
+    juce::TextButton autoEqButton, eqZeroButton, autoLoudButton;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> buttonAttachments;
+    juce::Rectangle<int> eqArea, compArea, stereoArea, limArea;
+    float compGr = 0, limGr = 0;
+};
+
+class CheckEditor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer
 {
 public:
     explicit CheckEditor (CheckProcessor&);
@@ -43,6 +74,12 @@ public:
 
     // Pulls fresh data and redraws (also used by the offline snapshot test).
     void refresh();
+
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override { dragging = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { dragging = false; repaint(); }
+    void filesDropped (const juce::StringArray&, int, int) override;
+    void showMessage (const juce::String&);
 
 private:
     void timerCallback() override;
@@ -55,6 +92,11 @@ private:
 
     juce::ComboBox targetBox, curveBox;
     juce::TextButton resetButton, learnButton;
+    std::unique_ptr<juce::FileChooser> chooser;
+    FixPanel fixPanel;
+    juce::String toast;
+    juce::uint32 toastUntil = 0;
+    bool dragging = false;
     juce::ToggleButton autoResetToggle;
     juce::Viewport hintsViewport;
     mcheck::HintsView hintsView;
@@ -69,6 +111,7 @@ private:
     int tick = 0;
 
     juce::Rectangle<int> tilesArea, historyArea, spectrumArea;
+    static bool isAudioFile (const juce::String& path);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CheckEditor)
 };
